@@ -46,13 +46,6 @@
 </table>
 </div>
 
-## Screenshots
-> Скриншоты клади в папку `docs/screenshots/`.
-
-| Main | Servers | Settings |
-|---|---|---|
-| ![Main](docs/screenshots/main.png) | ![Servers](docs/screenshots/servers.png) | ![Settings](docs/screenshots/settings.png) |
-
 ## Build Windows Installer
 1. Install [Inno Setup 6](https://jrsoftware.org/isdl.php)
 2. Run:
