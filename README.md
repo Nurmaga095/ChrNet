@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/cover.png" alt="ChrNet screenshot" width="760">
+  <img src="docs/screenshots/cover.png" alt="ChrNet screenshot" width="450">
 </p>
 
 <div align="center">
