@@ -40,7 +40,9 @@
     <tr>
       <td>Android</td>
       <td>
-        <img src="https://img.shields.io/badge/Скоро-9ca3af.svg?logo=android&logoColor=white" alt="Android скоро">
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/latest/download/app-release.apk">
+          <img src="https://img.shields.io/badge/APK-Актуальный-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK">
+        </a>
       </td>
     </tr>
     <tr>
