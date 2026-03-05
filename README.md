@@ -46,17 +46,6 @@
 </table>
 </div>
 
-## Сборка установщика Windows
-1. Установите [Inno Setup 6](https://jrsoftware.org/isdl.php)
-2. Запустите:
-
-```powershell
-cd C:\Users\User\Desktop\chrnet
-powershell -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1
-```
-
-Файл на выходе: `dist\ChrNet-Setup-<version>.exe`
-
 ## Сообщество
 <div align="left">
 <table>
