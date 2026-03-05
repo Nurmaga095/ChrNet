@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/screenshots/cover.png" alt="ChrNet screenshot" width="1000">
+</p>
+
 <div align="center">
   <img src="assets/images/icon.png" width="96" alt="ChrNet logo" />
   <h1>ChrNet VPN</h1>
