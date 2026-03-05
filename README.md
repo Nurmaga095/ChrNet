@@ -32,7 +32,7 @@
     <tr>
       <td>Windows x64</td>
       <td>
-        <a href="https://github.com/Nurmaga095/ChrNet/releases/latest">
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/latest/download/ChrNet-Setup-latest.exe">
           <img src="https://img.shields.io/badge/Установщик-Актуальный-2d7d9a.svg?logo=windows&logoColor=white" alt="Установщик Windows">
         </a>
       </td>
