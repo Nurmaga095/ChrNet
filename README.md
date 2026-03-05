@@ -40,9 +40,19 @@
     <tr>
       <td>Android</td>
       <td>
-        <a href="https://github.com/Nurmaga095/ChrNet/releases/latest">
-          <img src="https://img.shields.io/badge/APK-Актуальный-044d29.svg?logo=android&logoColor=white" alt="APK Android">
-        </a>
+        <img src="https://img.shields.io/badge/Скоро-9ca3af.svg?logo=android&logoColor=white" alt="Android скоро">
+      </td>
+    </tr>
+    <tr>
+      <td>macOS</td>
+      <td>
+        <img src="https://img.shields.io/badge/Скоро-9ca3af.svg?logo=apple&logoColor=white" alt="macOS скоро">
+      </td>
+    </tr>
+    <tr>
+      <td>iOS</td>
+      <td>
+        <img src="https://img.shields.io/badge/Скоро-9ca3af.svg?logo=apple&logoColor=white" alt="iOS скоро">
       </td>
     </tr>
   </tbody>
