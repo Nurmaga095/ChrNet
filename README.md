@@ -3,7 +3,6 @@
 </p>
 
 <div align="center">
-  <img src="assets/images/icon.png" width="96" alt="ChrNet logo" />
   <h1>ChrNet VPN</h1>
   <p>Быстрый и безопасный VPN-клиент на Flutter (Android + Windows)</p>
 
