@@ -247,27 +247,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ),
-              SizedBox(height: _s(14)),
-
-              // ── Speed Stats (when connected) ───────────────────────────────
-              if (vpn.status == VpnStatus.connected) ...[
-                StatsCard(stats: vpn.stats),
-                SizedBox(height: _s(8)),
-              ],
-              SizedBox(height: _s(8)),
-
-              if (vpn.errorMessage != null) ...[
-                SizedBox(height: _s(8)),
-                Center(
-                  child: Text(
-                    vpn.errorMessage!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppColors.error, fontSize: _s(12)),
-                  ),
+              // ── Fixed-height area: stats + error (prevents list from jumping) ──
+              SizedBox(
+                height: _s(52),
+                child: Center(
+                  child: vpn.errorMessage != null
+                      ? Text(
+                          vpn.errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: AppColors.error, fontSize: _s(12)),
+                        )
+                      : vpn.status == VpnStatus.connected
+                          ? StatsCard(stats: vpn.stats)
+                          : null,
                 ),
-              ],
+              ),
 
-              SizedBox(height: _s(18)),
+              SizedBox(height: _s(10)),
               ..._buildSubscriptionSections(context, vpn),
 
               if (_subscriptions.isEmpty) ...[
