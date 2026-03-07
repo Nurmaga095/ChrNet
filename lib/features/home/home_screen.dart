@@ -113,13 +113,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 Theme.of(context).platform == TargetPlatform.iOS;
         return Scaffold(
           backgroundColor: Colors.transparent,
-          extendBodyBehindAppBar: true,
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
             scrolledUnderElevation: 0,
             elevation: 0,
             toolbarHeight: 140,
+            centerTitle: true,
+            title: _buildStatusOrTimer(vpn, context, scale: _heroScale),
             actions: [
               Padding(
                 padding: const EdgeInsets.only(right: 14, top: 10, bottom: 10),
@@ -235,11 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ListView(
             padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
             children: [
-              const SizedBox(height: 20),
-
-              // ── Status / Timer ─────────────────────────────────────────────
-              _buildStatusOrTimer(vpn, context, scale: _heroScale),
-              SizedBox(height: _s(12)),
+              SizedBox(height: _s(16)),
 
               // ── Power Button ───────────────────────────────────────────────
               Center(
