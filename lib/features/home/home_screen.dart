@@ -113,20 +113,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 Theme.of(context).platform == TargetPlatform.iOS;
         return Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            scrolledUnderElevation: 0,
-            elevation: 0,
-            toolbarHeight: 140,
-            centerTitle: true,
-            title: _buildStatusOrTimer(vpn, context, scale: _heroScale),
-            actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: 14, top: 10, bottom: 10),
+          body: Stack(
+            children: [
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _WatermarkPainter(
+                      AppColors.of(context).textSecondary.withValues(alpha: 0.13),
+                    ),
+                  ),
+                ),
+              ),
+              // ── Floating action buttons (top-right) ──────────────────────
+              Positioned(
+                top: 10,
+                right: 14,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // ── + Добавить ──────────────────────────────────────────
                     PopupMenuButton<String>(
@@ -220,23 +223,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-            ],
-          ),
-          body: Stack(
-            children: [
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: _WatermarkPainter(
-                      AppColors.of(context).textSecondary.withValues(alpha: 0.13),
-                    ),
-                  ),
-                ),
-              ),
               ListView(
             padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
             children: [
               SizedBox(height: _s(16)),
+
+              // ── Status / Timer ─────────────────────────────────────────────
+              _buildStatusOrTimer(vpn, context, scale: _heroScale),
+              SizedBox(height: _s(10)),
 
               // ── Power Button ───────────────────────────────────────────────
               Center(
