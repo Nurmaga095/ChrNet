@@ -277,11 +277,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 8),
                         GestureDetector(
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const SettingsScreen()),
-                          ),
+                          onTap: _openSettings,
                           child: const _AppBarButton(
                             icon: Icons.settings_rounded,
                             iconSize: 18,
@@ -1061,6 +1057,38 @@ class _HomeScreenState extends State<HomeScreen> {
     } finally {
       socket?.destroy();
     }
+  }
+
+  void _openSettings() {
+    final c = AppColors.of(context);
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 220),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        pageBuilder: (_, __, ___) => const SettingsScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          return ColoredBox(
+            color: c.background,
+            child: FadeTransition(
+              opacity: curved,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0.035, 0),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: child,
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
