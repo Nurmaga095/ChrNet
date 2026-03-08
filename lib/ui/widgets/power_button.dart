@@ -89,7 +89,7 @@ class _PowerButtonState extends State<PowerButton>
         return [const Color(0xFF34D399), const Color(0xFF0F766E)];
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return [const Color(0xFFFFC75F), const Color(0xFFFF8A5B)];
+        return [const Color(0xFF5EEAD4), const Color(0xFF0EA5E9)];
       case VpnStatus.error:
         return [const Color(0xFFFF8A80), const Color(0xFFE53935)];
       case VpnStatus.disconnected:
@@ -103,7 +103,7 @@ class _PowerButtonState extends State<PowerButton>
         return const Color(0xFF34D399);
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return const Color(0xFFFFB457);
+        return const Color(0xFF4FD8FF);
       case VpnStatus.error:
         return AppColors.error;
       case VpnStatus.disconnected:
@@ -117,7 +117,7 @@ class _PowerButtonState extends State<PowerButton>
         return [const Color(0xFF1E8E73), const Color(0xFF0B4E50)];
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return [const Color(0xFFD67B32), const Color(0xFFA44B2F)];
+        return [const Color(0xFF1294A8), const Color(0xFF164C95)];
       case VpnStatus.error:
         return [const Color(0xFFD85A57), const Color(0xFF8E2525)];
       case VpnStatus.disconnected:
