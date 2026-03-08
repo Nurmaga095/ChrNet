@@ -274,14 +274,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Tooltip(
-                          message: 'Личный кабинет',
-                          child: GestureDetector(
-                            onTap: _openSubscriptionSite,
-                            child: const _AppBarButton(
-                              icon: Icons.manage_accounts_rounded,
-                              iconSize: 18,
-                            ),
+                        GestureDetector(
+                          onTap: _openSubscriptionSite,
+                          child: const _AppBarButton(
+                            icon: Icons.manage_accounts_rounded,
+                            iconSize: 18,
                           ),
                         ),
                         const SizedBox(height: 8),
