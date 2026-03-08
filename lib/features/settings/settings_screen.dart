@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
@@ -62,48 +61,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ),
-      body: Stack(
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _WatermarkPainter(
-                  AppColors.of(context).textSecondary.withValues(alpha: 0.13),
-                ),
-              ),
+          // ── Тема ──────────────────────────────────────────────────────────
+          const _ThemeSwitcher(),
+          const SizedBox(height: 10),
+
+          _MenuItem(
+            iconColor: const Color(0xFF25D366),
+            icon: Icons.chat_bubble_rounded,
+            label: 'Связаться с поддержкой',
+            onTap: () => launchUrl(
+              Uri.parse('https://t.me/VSupportV'),
+              mode: LaunchMode.externalApplication,
             ),
           ),
-          ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: [
-              // ── Тема ──────────────────────────────────────────────────────────
-              const _ThemeSwitcher(),
-              const SizedBox(height: 10),
-
-              _MenuItem(
-                iconColor: const Color(0xFF25D366),
-                icon: Icons.chat_bubble_rounded,
-                label: 'Связаться с поддержкой',
-                onTap: () => launchUrl(
-                  Uri.parse('https://t.me/VSupportV'),
-                  mode: LaunchMode.externalApplication,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _MenuItem(
-                iconColor: const Color(0xFF2979FF),
-                icon: Icons.tune_rounded,
-                label: 'Настройки соединения',
-                onTap: () => _showSettingsSheet(context),
-              ),
-              const SizedBox(height: 10),
-              _MenuItem(
-                iconColor: const Color(0xFFFFA000),
-                icon: Icons.info_rounded,
-                label: 'О приложении',
-                onTap: () => _showAbout(context),
-              ),
-            ],
+          const SizedBox(height: 10),
+          _MenuItem(
+            iconColor: const Color(0xFF2979FF),
+            icon: Icons.tune_rounded,
+            label: 'Настройки соединения',
+            onTap: () => _showSettingsSheet(context),
+          ),
+          const SizedBox(height: 10),
+          _MenuItem(
+            iconColor: const Color(0xFFFFA000),
+            icon: Icons.info_rounded,
+            label: 'О приложении',
+            onTap: () => _showAbout(context),
           ),
         ],
       ),
@@ -171,56 +157,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-}
-
-class _WatermarkPainter extends CustomPainter {
-  final Color color;
-  const _WatermarkPainter(this.color);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const text = 'ChrNet';
-    const fontSize = 20.0;
-    const spacingX = 120.0;
-    const spacingY = 75.0;
-    const angle = -math.pi / 6;
-
-    final textStyle = TextStyle(
-      color: color,
-      fontSize: fontSize,
-      fontWeight: FontWeight.w700,
-      letterSpacing: 1.5,
-    );
-
-    final tp = TextPainter(
-      text: TextSpan(text: text, style: textStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
-
-    final diagonal =
-        math.sqrt(size.width * size.width + size.height * size.height);
-    final cols = (diagonal / spacingX).ceil() + 2;
-    final rows = (diagonal / spacingY).ceil() + 2;
-
-    canvas.save();
-    canvas.translate(size.width / 2, size.height / 2);
-    canvas.rotate(angle);
-    canvas.translate(-diagonal / 2, -diagonal / 2);
-
-    for (var row = 0; row < rows; row++) {
-      for (var col = 0; col < cols; col++) {
-        final offset = Offset(
-          col * spacingX + (row.isOdd ? spacingX / 2 : 0),
-          row * spacingY,
-        );
-        tp.paint(canvas, offset);
-      }
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_WatermarkPainter old) => old.color != color;
 }
 
 // ─── Переключатель темы ────────────────────────────────────────────────────────

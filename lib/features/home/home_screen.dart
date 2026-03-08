@@ -115,17 +115,6 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Colors.transparent,
           body: Stack(
             children: [
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: _WatermarkPainter(
-                      AppColors.of(context)
-                          .textSecondary
-                          .withValues(alpha: 0.13),
-                    ),
-                  ),
-                ),
-              ),
               ListView(
                 padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
                 children: [
@@ -209,68 +198,73 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         // ── + Добавить ──────────────────────────────────────────
-                        PopupMenuButton<String>(
-                          padding: EdgeInsets.zero,
-                          color: c.cardBackground,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            side: BorderSide(color: c.borderColor),
-                          ),
-                          offset: const Offset(0, 48),
-                          onSelected: (value) async {
-                            if (value == 'clipboard') {
-                              final messenger = ScaffoldMessenger.of(context);
-                              final result =
-                                  await ImportService.importFromClipboard();
-                              _handleImportResult(messenger, result);
-                            } else if (value == 'qr' && supportsQrScan) {
-                              if (!context.mounted) return;
-                              final messenger = ScaffoldMessenger.of(context);
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => QrScanScreen(
-                                    onScanned: (uri) async {
-                                      final result =
-                                          await ImportService.importFromUri(
-                                              uri);
-                                      _handleImportResult(messenger, result);
-                                    },
-                                  ),
-                                ),
-                              );
-                            }
-                          },
-                          itemBuilder: (context) => [
-                            PopupMenuItem<String>(
-                              value: 'clipboard',
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.content_paste_rounded,
-                                      color: AppColors.accent, size: 20),
-                                  const SizedBox(width: 12),
-                                  Text('Из буфера обмена',
-                                      style: TextStyle(color: c.textPrimary)),
-                                ],
-                              ),
+                        TooltipVisibility(
+                          visible: false,
+                          child: PopupMenuButton<String>(
+                            tooltip: '',
+                            padding: EdgeInsets.zero,
+                            color: c.cardBackground,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: BorderSide(color: c.borderColor),
                             ),
-                            if (supportsQrScan)
+                            offset: const Offset(0, 48),
+                            onSelected: (value) async {
+                              if (value == 'clipboard') {
+                                final messenger = ScaffoldMessenger.of(context);
+                                final result =
+                                    await ImportService.importFromClipboard();
+                                _handleImportResult(messenger, result);
+                              } else if (value == 'qr' && supportsQrScan) {
+                                if (!context.mounted) return;
+                                final messenger = ScaffoldMessenger.of(context);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => QrScanScreen(
+                                      onScanned: (uri) async {
+                                        final result =
+                                            await ImportService.importFromUri(
+                                                uri);
+                                        _handleImportResult(messenger, result);
+                                      },
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            itemBuilder: (context) => [
                               PopupMenuItem<String>(
-                                value: 'qr',
+                                value: 'clipboard',
                                 child: Row(
                                   children: [
-                                    const Icon(Icons.qr_code_scanner_rounded,
+                                    const Icon(Icons.content_paste_rounded,
                                         color: AppColors.accent, size: 20),
                                     const SizedBox(width: 12),
-                                    Text('Сканировать QR-код',
+                                    Text('Из буфера обмена',
                                         style: TextStyle(color: c.textPrimary)),
                                   ],
                                 ),
                               ),
-                          ],
-                          child: const _AppBarButton(
-                            icon: Icons.add_rounded,
-                            iconSize: 22,
+                              if (supportsQrScan)
+                                PopupMenuItem<String>(
+                                  value: 'qr',
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.qr_code_scanner_rounded,
+                                          color: AppColors.accent, size: 20),
+                                      const SizedBox(width: 12),
+                                      Text('Сканировать QR-код',
+                                          style:
+                                              TextStyle(color: c.textPrimary)),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                            child: const _AppBarButton(
+                              icon: Icons.add_rounded,
+                              iconSize: 22,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -1545,56 +1539,4 @@ class _AppBarButtonState extends State<_AppBarButton> {
       ),
     );
   }
-}
-
-// ─── Watermark background ──────────────────────────────────────────────────────
-
-class _WatermarkPainter extends CustomPainter {
-  final Color color;
-  const _WatermarkPainter(this.color);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const text = 'ChrNet';
-    const fontSize = 20.0;
-    const spacingX = 120.0;
-    const spacingY = 75.0;
-    const angle = -math.pi / 6;
-
-    final textStyle = TextStyle(
-      color: color,
-      fontSize: fontSize,
-      fontWeight: FontWeight.w700,
-      letterSpacing: 1.5,
-    );
-
-    final tp = TextPainter(
-      text: TextSpan(text: text, style: textStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
-
-    final diagonal =
-        math.sqrt(size.width * size.width + size.height * size.height);
-    final cols = (diagonal / spacingX).ceil() + 2;
-    final rows = (diagonal / spacingY).ceil() + 2;
-
-    canvas.save();
-    canvas.translate(size.width / 2, size.height / 2);
-    canvas.rotate(angle);
-    canvas.translate(-diagonal / 2, -diagonal / 2);
-
-    for (var row = 0; row < rows; row++) {
-      for (var col = 0; col < cols; col++) {
-        final offset = Offset(
-          col * spacingX + (row.isOdd ? spacingX / 2 : 0),
-          row * spacingY,
-        );
-        tp.paint(canvas, offset);
-      }
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_WatermarkPainter old) => old.color != color;
 }
