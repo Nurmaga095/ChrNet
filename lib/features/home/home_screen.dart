@@ -327,13 +327,13 @@ class _HomeScreenState extends State<HomeScreen> {
           label: 'Подключение...',
           icon: Icons.bolt_rounded,
           backgroundColors: Theme.of(context).brightness == Brightness.dark
-              ? const [Color(0xFF4E3527), Color(0xFF2D211D)]
-              : const [Color(0xFFFFE4C7), Color(0xFFFFD0A8)],
-          borderColor: const Color(0xFFFFB868),
-          iconColor: const Color(0xFFFFAD42),
+              ? const [Color(0xFF173A47), Color(0xFF112430)]
+              : const [Color(0xFFDDF7FF), Color(0xFFC8EEFF)],
+          borderColor: const Color(0xFF57D7FF),
+          iconColor: const Color(0xFF56D6FF),
           textColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFFFFD39A)
-              : const Color(0xFF8A4F1C),
+              ? const Color(0xFFB8F1FF)
+              : const Color(0xFF0E5E74),
         );
       case VpnStatus.disconnecting:
         return _buildStatusBadge(
@@ -342,13 +342,13 @@ class _HomeScreenState extends State<HomeScreen> {
           label: 'Отключение...',
           icon: Icons.power_settings_new_rounded,
           backgroundColors: Theme.of(context).brightness == Brightness.dark
-              ? const [Color(0xFF413329), Color(0xFF261F1B)]
-              : const [Color(0xFFFFE7D4), Color(0xFFFFD7BF)],
-          borderColor: const Color(0xFFFFB78A),
-          iconColor: const Color(0xFFFF9A62),
+              ? const [Color(0xFF323B5A), Color(0xFF1E2439)]
+              : const [Color(0xFFE5EAFF), Color(0xFFD6DEFF)],
+          borderColor: const Color(0xFF9BAEFF),
+          iconColor: const Color(0xFFA6B9FF),
           textColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFFFFC7A7)
-              : const Color(0xFF8A5030),
+              ? const Color(0xFFD9E2FF)
+              : const Color(0xFF42518A),
         );
       case VpnStatus.disconnected:
         return _buildStatusBadge(
