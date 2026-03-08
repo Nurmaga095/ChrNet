@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import go.Seq
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.util.ArrayDeque
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
@@ -262,6 +263,8 @@ class XrayVpnService : VpnService() {
         stopStatsThread()
         var totalDownload = 0L
         var totalUpload = 0L
+        val downloadSpeedSamples = ArrayDeque<Long>()
+        val uploadSpeedSamples = ArrayDeque<Long>()
         statsThread = Thread {
             // Drain any bytes accumulated during Xray startup before first report
             try {
@@ -277,6 +280,12 @@ class XrayVpnService : VpnService() {
                         val ul = coreController?.queryStats("proxy", "uplink") ?: 0L
                         totalDownload += dl
                         totalUpload += ul
+                        val downSpeed = smoothSpeedSample(dl, downloadSpeedSamples)
+                        val upSpeed = smoothSpeedSample(ul, uploadSpeedSamples)
+                        val notificationText = buildSpeedNotificationText(downSpeed, upSpeed)
+                        Handler(Looper.getMainLooper()).post {
+                            updateNotification(notificationText)
+                        }
                     } catch (_: Exception) {}
                     val dl = totalDownload; val ul = totalUpload
                     Handler(Looper.getMainLooper()).post {
@@ -507,13 +516,43 @@ class XrayVpnService : VpnService() {
         val stop = PendingIntent.getService(this, 0,
             Intent(this, XrayVpnService::class.java).apply { action = ACTION_STOP }, PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ChrNet VPN").setContentText(text)
+            .setContentTitle("ChrNet VPN")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .addAction(android.R.drawable.ic_media_pause, "Отключить", stop)
-            .setOngoing(true).build()
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .build()
     }
 
     private fun updateNotification(text: String) {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
+    }
+
+    private fun buildSpeedNotificationText(downloadSpeed: Long, uploadSpeed: Long): String {
+        return "\u2193 ${formatSpeed(downloadSpeed)}   \u2191 ${formatSpeed(uploadSpeed)}"
+    }
+
+    private fun smoothSpeedSample(speed: Long, samples: ArrayDeque<Long>): Long {
+        samples.addLast(speed)
+        while (samples.size > 4) {
+            samples.removeFirst()
+        }
+
+        val average = samples.sum() / samples.size.coerceAtLeast(1)
+        if (speed == 0L && average < 64L) {
+            return 0L
+        }
+        return average
+    }
+
+    private fun formatSpeed(bytesPerSecond: Long): String {
+        if (bytesPerSecond <= 0L) return "0 Б/с"
+        if (bytesPerSecond < 1024L) return "$bytesPerSecond Б/с"
+        if (bytesPerSecond < 1024L * 1024L) {
+            return String.format("%.1f КБ/с", bytesPerSecond / 1024.0)
+        }
+        return String.format("%.1f МБ/с", bytesPerSecond / (1024.0 * 1024.0))
     }
 }
