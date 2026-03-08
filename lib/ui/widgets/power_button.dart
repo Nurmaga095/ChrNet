@@ -86,28 +86,42 @@ class _PowerButtonState extends State<PowerButton>
   List<Color> get _gradientColors {
     switch (widget.status) {
       case VpnStatus.connected:
-        return [const Color(0xFF43E97B), const Color(0xFF38F9D7)];
+        return [const Color(0xFF34D399), const Color(0xFF0F766E)];
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return [const Color(0xFF4FC3F7), const Color(0xFF2979FF)];
+        return [const Color(0xFFFFC75F), const Color(0xFFFF8A5B)];
       case VpnStatus.error:
-        return [const Color(0xFFFF8A80), const Color(0xFFEF5350)];
+        return [const Color(0xFFFF8A80), const Color(0xFFE53935)];
       case VpnStatus.disconnected:
-        return [const Color(0xFF3A4268), const Color(0xFF1B1F3A)];
+        return [const Color(0xFF55607F), const Color(0xFF262C46)];
     }
   }
 
   Color get _glowColor {
     switch (widget.status) {
       case VpnStatus.connected:
-        return const Color(0xFF00E676);
+        return const Color(0xFF34D399);
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return AppColors.accent;
+        return const Color(0xFFFFB457);
       case VpnStatus.error:
         return AppColors.error;
       case VpnStatus.disconnected:
-        return const Color(0xFF3D4880);
+        return const Color(0xFF6B789E);
+    }
+  }
+
+  List<Color> get _innerGradientColors {
+    switch (widget.status) {
+      case VpnStatus.connected:
+        return [const Color(0xFF1E8E73), const Color(0xFF0B4E50)];
+      case VpnStatus.connecting:
+      case VpnStatus.disconnecting:
+        return [const Color(0xFFD67B32), const Color(0xFFA44B2F)];
+      case VpnStatus.error:
+        return [const Color(0xFFD85A57), const Color(0xFF8E2525)];
+      case VpnStatus.disconnected:
+        return [const Color(0xFF39415F), const Color(0xFF171C31)];
     }
   }
 
@@ -124,7 +138,8 @@ class _PowerButtonState extends State<PowerButton>
           final scale = isTransitioning ? _pulseAnim.value : 1.0;
           final size = 210 * widget.scale;
           final arcSize = 148 * widget.scale;
-          final coreButtonSize = 120 * widget.scale;
+          final coreButtonSize = 126 * widget.scale;
+          final innerButtonSize = 104 * widget.scale;
           final progressSize = 40 * widget.scale;
           final iconSize = 56 * widget.scale;
 
@@ -136,6 +151,24 @@ class _PowerButtonState extends State<PowerButton>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
+                  Container(
+                    width: 154 * widget.scale,
+                    height: 154 * widget.scale,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          _glowColor.withValues(
+                            alpha: widget.status == VpnStatus.disconnected
+                                ? 0.12
+                                : 0.22,
+                          ),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+
                   // ── Ripple rings ──────────────────────────────────────────
                   if (widget.status == VpnStatus.connected ||
                       widget.status == VpnStatus.connecting)
@@ -180,40 +213,88 @@ class _PowerButtonState extends State<PowerButton>
                         end: Alignment.bottomRight,
                         colors: _gradientColors,
                       ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.14),
+                        width: 1.2 * widget.scale,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: _glowColor.withValues(
-                              alpha:
-                              widget.status == VpnStatus.disconnected
+                              alpha: widget.status == VpnStatus.disconnected
                                   ? 0.25
                                   : 0.5),
-                          blurRadius: 30 * widget.scale,
+                          blurRadius: 34 * widget.scale,
                           spreadRadius: 4 * widget.scale,
+                          offset: Offset(0, 12 * widget.scale),
                         ),
                         BoxShadow(
-                          color: _glowColor.withValues(alpha: 0.15),
-                          blurRadius: 60 * widget.scale,
-                          spreadRadius: 12 * widget.scale,
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 24 * widget.scale,
+                          offset: Offset(0, 10 * widget.scale),
                         ),
                       ],
                     ),
-                    child: isTransitioning
-                        ? Center(
-                            child: SizedBox(
-                              width: progressSize,
-                              height: progressSize,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 3 * widget.scale,
-                                valueColor:
-                                    const AlwaysStoppedAnimation(Colors.white),
+                    child: Center(
+                      child: Container(
+                        width: innerButtonSize,
+                        height: innerButtonSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: _innerGradientColors,
+                          ),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            width: 1.1 * widget.scale,
+                          ),
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Positioned(
+                              top: 14 * widget.scale,
+                              child: Container(
+                                width: 54 * widget.scale,
+                                height: 18 * widget.scale,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.white.withValues(alpha: 0.22),
+                                      Colors.white.withValues(alpha: 0.02),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          )
-                        : Icon(
-                            Icons.power_settings_new_rounded,
-                            size: iconSize,
-                            color: Colors.white,
-                          ),
+                            if (isTransitioning)
+                              SizedBox(
+                                width: progressSize,
+                                height: progressSize,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3 * widget.scale,
+                                  valueColor: const AlwaysStoppedAnimation(
+                                      Colors.white),
+                                ),
+                              )
+                            else
+                              Icon(
+                                Icons.power_settings_new_rounded,
+                                size: iconSize,
+                                color: Colors.white.withValues(
+                                  alpha: widget.status == VpnStatus.disconnected
+                                      ? 0.92
+                                      : 1,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
