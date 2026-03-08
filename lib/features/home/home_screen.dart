@@ -203,97 +203,101 @@ class _HomeScreenState extends State<HomeScreen> {
                 right: 14,
                 child: SafeArea(
                   bottom: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // ── + Добавить ──────────────────────────────────────────
-                      PopupMenuButton<String>(
-                        padding: EdgeInsets.zero,
-                        color: c.cardBackground,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          side: BorderSide(color: c.borderColor),
-                        ),
-                        offset: const Offset(0, 52),
-                        onSelected: (value) async {
-                          if (value == 'clipboard') {
-                            final messenger = ScaffoldMessenger.of(context);
-                            final result =
-                                await ImportService.importFromClipboard();
-                            _handleImportResult(messenger, result);
-                          } else if (value == 'qr' && supportsQrScan) {
-                            if (!context.mounted) return;
-                            final messenger = ScaffoldMessenger.of(context);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => QrScanScreen(
-                                  onScanned: (uri) async {
-                                    final result =
-                                        await ImportService.importFromUri(uri);
-                                    _handleImportResult(messenger, result);
-                                  },
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          PopupMenuItem<String>(
-                            value: 'clipboard',
-                            child: Row(
-                              children: [
-                                const Icon(Icons.content_paste_rounded,
-                                    color: AppColors.accent, size: 20),
-                                const SizedBox(width: 12),
-                                Text('Из буфера обмена',
-                                    style: TextStyle(color: c.textPrimary)),
-                              ],
-                            ),
+                  child: Padding(
+                    padding: EdgeInsets.only(top: Platform.isWindows ? 34 : 0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // ── + Добавить ──────────────────────────────────────────
+                        PopupMenuButton<String>(
+                          padding: EdgeInsets.zero,
+                          color: c.cardBackground,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(color: c.borderColor),
                           ),
-                          if (supportsQrScan)
+                          offset: const Offset(0, 48),
+                          onSelected: (value) async {
+                            if (value == 'clipboard') {
+                              final messenger = ScaffoldMessenger.of(context);
+                              final result =
+                                  await ImportService.importFromClipboard();
+                              _handleImportResult(messenger, result);
+                            } else if (value == 'qr' && supportsQrScan) {
+                              if (!context.mounted) return;
+                              final messenger = ScaffoldMessenger.of(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => QrScanScreen(
+                                    onScanned: (uri) async {
+                                      final result =
+                                          await ImportService.importFromUri(
+                                              uri);
+                                      _handleImportResult(messenger, result);
+                                    },
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          itemBuilder: (context) => [
                             PopupMenuItem<String>(
-                              value: 'qr',
+                              value: 'clipboard',
                               child: Row(
                                 children: [
-                                  const Icon(Icons.qr_code_scanner_rounded,
+                                  const Icon(Icons.content_paste_rounded,
                                       color: AppColors.accent, size: 20),
                                   const SizedBox(width: 12),
-                                  Text('Сканировать QR-код',
+                                  Text('Из буфера обмена',
                                       style: TextStyle(color: c.textPrimary)),
                                 ],
                               ),
                             ),
-                        ],
-                        child: const _AppBarButton(
-                          icon: Icons.add_rounded,
-                          iconSize: 26,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Tooltip(
-                        message: 'Личный кабинет',
-                        child: GestureDetector(
-                          onTap: _openSubscriptionSite,
+                            if (supportsQrScan)
+                              PopupMenuItem<String>(
+                                value: 'qr',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.qr_code_scanner_rounded,
+                                        color: AppColors.accent, size: 20),
+                                    const SizedBox(width: 12),
+                                    Text('Сканировать QR-код',
+                                        style: TextStyle(color: c.textPrimary)),
+                                  ],
+                                ),
+                              ),
+                          ],
                           child: const _AppBarButton(
-                            icon: Icons.manage_accounts_rounded,
+                            icon: Icons.add_rounded,
                             iconSize: 22,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      GestureDetector(
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const SettingsScreen()),
+                        const SizedBox(height: 8),
+                        Tooltip(
+                          message: 'Личный кабинет',
+                          child: GestureDetector(
+                            onTap: _openSubscriptionSite,
+                            child: const _AppBarButton(
+                              icon: Icons.manage_accounts_rounded,
+                              iconSize: 18,
+                            ),
+                          ),
                         ),
-                        child: const _AppBarButton(
-                          icon: Icons.settings_rounded,
-                          iconSize: 22,
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const SettingsScreen()),
+                          ),
+                          child: const _AppBarButton(
+                            icon: Icons.settings_rounded,
+                            iconSize: 18,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1487,10 +1491,10 @@ class _AppBarButtonState extends State<_AppBarButton> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOutCubic,
-          width: 46,
-          height: 46,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -1521,10 +1525,10 @@ class _AppBarButtonState extends State<_AppBarButton> {
             alignment: Alignment.center,
             children: [
               Positioned(
-                top: 6,
+                top: 5,
                 child: Container(
-                  width: 24,
-                  height: 8,
+                  width: 18,
+                  height: 6,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
                     color: Colors.white
