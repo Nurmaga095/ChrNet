@@ -1060,7 +1060,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openSettings() {
-    final c = AppColors.of(context);
     Navigator.of(context).push(
       PageRouteBuilder<void>(
         transitionDuration: const Duration(milliseconds: 220),
@@ -1074,7 +1073,7 @@ class _HomeScreenState extends State<HomeScreen> {
           );
 
           return ColoredBox(
-            color: c.background,
+            color: AppColors.of(context).background,
             child: FadeTransition(
               opacity: curved,
               child: SlideTransition(
