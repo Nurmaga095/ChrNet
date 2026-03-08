@@ -270,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           iconSize: 26,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       Tooltip(
                         message: 'Личный кабинет',
                         child: GestureDetector(
@@ -281,7 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       GestureDetector(
                         onTap: () => Navigator.push(
                           context,
@@ -1460,25 +1460,88 @@ class _TopNoticeHostState extends State<_TopNoticeHost>
 
 // ─── AppBar icon button ───────────────────────────────────────────────────────
 
-class _AppBarButton extends StatelessWidget {
+class _AppBarButton extends StatefulWidget {
   final IconData icon;
   final double iconSize;
 
   const _AppBarButton({required this.icon, required this.iconSize});
 
   @override
+  State<_AppBarButton> createState() => _AppBarButtonState();
+}
+
+class _AppBarButtonState extends State<_AppBarButton> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: AppColors.accent.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(
-          color: AppColors.accent.withValues(alpha: 0.32),
+    final c = AppColors.of(context);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedScale(
+        scale: _isHovered ? 1.05 : 1,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.accent.withValues(alpha: _isHovered ? 0.28 : 0.2),
+                c.surfaceColor.withValues(alpha: _isHovered ? 0.9 : 0.82),
+              ],
+            ),
+            border: Border.all(
+              color:
+                  AppColors.accent.withValues(alpha: _isHovered ? 0.58 : 0.36),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.accent
+                    .withValues(alpha: _isHovered ? 0.24 : 0.14),
+                blurRadius: _isHovered ? 24 : 16,
+                offset: const Offset(0, 8),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned(
+                top: 6,
+                child: Container(
+                  width: 24,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    color: Colors.white
+                        .withValues(alpha: _isHovered ? 0.22 : 0.12),
+                  ),
+                ),
+              ),
+              Icon(
+                widget.icon,
+                color: AppColors.accentGlow
+                    .withValues(alpha: _isHovered ? 1 : 0.92),
+                size: widget.iconSize,
+              ),
+            ],
+          ),
         ),
       ),
-      child: Icon(icon, color: AppColors.accent, size: iconSize),
     );
   }
 }
