@@ -30,7 +30,7 @@ Future<void> main(List<String> args) async {
 
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
-       defaultTargetPlatform == TargetPlatform.windows)) {
+          defaultTargetPlatform == TargetPlatform.windows)) {
     DeepLinkService.initChannel();
   }
 
@@ -85,9 +85,26 @@ class ChrNetApp extends StatelessWidget {
           );
         }
 
+        Widget watermark = IgnorePointer(
+          child: CustomPaint(
+            painter: _BrandWatermarkPainter(
+              AppColors.of(context).textSecondary.withValues(alpha: 0.13),
+            ),
+            child: const SizedBox.expand(),
+          ),
+        );
+
+        if (!kIsWeb && Theme.of(context).platform == TargetPlatform.windows) {
+          watermark = Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(width: 500, child: watermark),
+          );
+        }
+
         return Stack(
           children: [
             const Positioned.fill(child: _AuroraBackground()),
+            Positioned.fill(child: watermark),
             Positioned.fill(child: content),
           ],
         );
@@ -155,8 +172,7 @@ class _AuroraPainter extends CustomPainter {
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
       Paint()
-        ..color =
-            isDark ? const Color(0xFF08091A) : const Color(0xFFECEEFF),
+        ..color = isDark ? const Color(0xFF08091A) : const Color(0xFFECEEFF),
     );
 
     _drawBlob(
@@ -220,6 +236,57 @@ class _AuroraPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_AuroraPainter old) =>
-      old.t != t || old.isDark != isDark;
+  bool shouldRepaint(_AuroraPainter old) => old.t != t || old.isDark != isDark;
+}
+
+class _BrandWatermarkPainter extends CustomPainter {
+  final Color color;
+
+  const _BrandWatermarkPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const text = 'ChrNet';
+    const fontSize = 20.0;
+    const spacingX = 120.0;
+    const spacingY = 75.0;
+    const angle = -math.pi / 6;
+
+    final textStyle = TextStyle(
+      color: color,
+      fontSize: fontSize,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 1.5,
+    );
+
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: textStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final diagonal =
+        math.sqrt(size.width * size.width + size.height * size.height);
+    final cols = (diagonal / spacingX).ceil() + 2;
+    final rows = (diagonal / spacingY).ceil() + 2;
+
+    canvas.save();
+    canvas.translate(size.width / 2, size.height / 2);
+    canvas.rotate(angle);
+    canvas.translate(-diagonal / 2, -diagonal / 2);
+
+    for (var row = 0; row < rows; row++) {
+      for (var col = 0; col < cols; col++) {
+        final offset = Offset(
+          col * spacingX + (row.isOdd ? spacingX / 2 : 0),
+          row * spacingY,
+        );
+        tp.paint(canvas, offset);
+      }
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_BrandWatermarkPainter old) => old.color != color;
 }
