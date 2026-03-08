@@ -119,7 +119,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: IgnorePointer(
                   child: CustomPaint(
                     painter: _WatermarkPainter(
-                      AppColors.of(context).textSecondary.withValues(alpha: 0.13),
+                      AppColors.of(context)
+                          .textSecondary
+                          .withValues(alpha: 0.13),
                     ),
                   ),
                 ),
@@ -224,75 +226,76 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               ListView(
-            padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
-            children: [
-              SizedBox(height: _s(16)),
+                padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
+                children: [
+                  SizedBox(height: _s(16)),
 
-              // ── Status / Timer ─────────────────────────────────────────────
-              _buildStatusOrTimer(vpn, context, scale: _heroScale),
-              SizedBox(height: _s(10)),
+                  // ── Status / Timer ─────────────────────────────────────────────
+                  _buildStatusOrTimer(vpn, context, scale: _heroScale),
+                  SizedBox(height: _s(10)),
 
-              // ── Power Button ───────────────────────────────────────────────
-              Center(
-                child: PowerButton(
-                  status: vpn.status,
-                  scale: _heroScale,
-                  onTap: () {
-                    if (vpn.selectedServer == null && _servers.isNotEmpty) {
-                      vpn.selectServer(_servers.first);
-                    }
-                    if (_servers.isNotEmpty) {
-                      vpn.toggleConnection();
-                    }
-                  },
-                ),
-              ),
-              // ── Fixed-height area: stats + error (prevents list from jumping) ──
-              SizedBox(
-                height: _s(52),
-                child: Center(
-                  child: vpn.errorMessage != null
-                      ? Text(
-                          vpn.errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: AppColors.error, fontSize: _s(12)),
-                        )
-                      : vpn.status == VpnStatus.connected
-                          ? StatsCard(stats: vpn.stats)
-                          : null,
-                ),
-              ),
-
-              SizedBox(height: _s(10)),
-              ..._buildSubscriptionSections(context, vpn),
-
-              if (_subscriptions.isEmpty) ...[
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final messenger = ScaffoldMessenger.of(context);
-                      final result = await ImportService.importFromClipboard();
-                      _handleImportResult(messenger, result);
-                    },
-                    icon: const Icon(Icons.content_paste_rounded, size: 18),
-                    label: const Text('Из буфера'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.accent,
-                      side: const BorderSide(color: AppColors.accent),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                  // ── Power Button ───────────────────────────────────────────────
+                  Center(
+                    child: PowerButton(
+                      status: vpn.status,
+                      scale: _heroScale,
+                      onTap: () {
+                        if (vpn.selectedServer == null && _servers.isNotEmpty) {
+                          vpn.selectServer(_servers.first);
+                        }
+                        if (_servers.isNotEmpty) {
+                          vpn.toggleConnection();
+                        }
+                      },
                     ),
                   ),
-                ),
-              ], // if _subscriptions.isEmpty
-              const SizedBox(height: 24),
-            ],
-          ), // ListView
+                  // ── Fixed-height area: stats + error (prevents list from jumping) ──
+                  SizedBox(
+                    height: _s(52),
+                    child: Center(
+                      child: vpn.errorMessage != null
+                          ? Text(
+                              vpn.errorMessage!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: AppColors.error, fontSize: _s(12)),
+                            )
+                          : vpn.status == VpnStatus.connected
+                              ? StatsCard(stats: vpn.stats)
+                              : null,
+                    ),
+                  ),
+
+                  SizedBox(height: _s(10)),
+                  ..._buildSubscriptionSections(context, vpn),
+
+                  if (_subscriptions.isEmpty) ...[
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final result =
+                              await ImportService.importFromClipboard();
+                          _handleImportResult(messenger, result);
+                        },
+                        icon: const Icon(Icons.content_paste_rounded, size: 18),
+                        label: const Text('Из буфера'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.accent,
+                          side: const BorderSide(color: AppColors.accent),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ], // if _subscriptions.isEmpty
+                  const SizedBox(height: 24),
+                ],
+              ), // ListView
             ],
           ), // Stack
         );
@@ -314,36 +317,139 @@ class _HomeScreenState extends State<HomeScreen> {
           textAlign: TextAlign.center,
           style: TextStyle(
             color: c.textPrimary,
-            fontSize: 17 * scale,
-            fontWeight: FontWeight.w300,
-            letterSpacing: 6 * scale,
+            fontSize: 18 * scale,
+            fontWeight: FontWeight.w400,
+            letterSpacing: 5.5 * scale,
+            shadows: [
+              Shadow(
+                color: AppColors.connected.withValues(alpha: 0.18),
+                blurRadius: 18 * scale,
+              ),
+            ],
           ),
         );
       case VpnStatus.connecting:
+        return _buildStatusBadge(
+          context,
+          scale: scale,
+          label: 'Подключение...',
+          icon: Icons.bolt_rounded,
+          backgroundColors: Theme.of(context).brightness == Brightness.dark
+              ? const [Color(0xFF4E3527), Color(0xFF2D211D)]
+              : const [Color(0xFFFFE4C7), Color(0xFFFFD0A8)],
+          borderColor: const Color(0xFFFFB868),
+          iconColor: const Color(0xFFFFAD42),
+          textColor: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFFFFD39A)
+              : const Color(0xFF8A4F1C),
+        );
       case VpnStatus.disconnecting:
-        return Text(
-          vpn.status.label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: AppColors.accent,
-            fontSize: 15 * scale,
-            fontWeight: FontWeight.w400,
-            letterSpacing: 0.5 * scale,
-          ),
+        return _buildStatusBadge(
+          context,
+          scale: scale,
+          label: 'Отключение...',
+          icon: Icons.power_settings_new_rounded,
+          backgroundColors: Theme.of(context).brightness == Brightness.dark
+              ? const [Color(0xFF413329), Color(0xFF261F1B)]
+              : const [Color(0xFFFFE7D4), Color(0xFFFFD7BF)],
+          borderColor: const Color(0xFFFFB78A),
+          iconColor: const Color(0xFFFF9A62),
+          textColor: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFFFFC7A7)
+              : const Color(0xFF8A5030),
         );
       case VpnStatus.disconnected:
+        return _buildStatusBadge(
+          context,
+          scale: scale,
+          label: 'Не подключено',
+          icon: Icons.shield_outlined,
+          backgroundColors: [
+            c.cardBackground.withValues(alpha: 0.96),
+            c.surfaceColor.withValues(alpha: 0.92),
+          ],
+          borderColor: c.borderColor.withValues(alpha: 0.9),
+          iconColor: c.textSecondary,
+          textColor: c.textPrimary,
+        );
       case VpnStatus.error:
-        return Text(
-          'Не подключено',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: c.textSecondary,
-            fontSize: 17 * scale,
-            fontWeight: FontWeight.w300,
-            letterSpacing: 0.5,
-          ),
+        return _buildStatusBadge(
+          context,
+          scale: scale,
+          label: 'Ошибка подключения',
+          icon: Icons.error_outline_rounded,
+          backgroundColors: Theme.of(context).brightness == Brightness.dark
+              ? const [Color(0xFF402325), Color(0xFF24171A)]
+              : const [Color(0xFFFFDFDD), Color(0xFFFFC4BF)],
+          borderColor: AppColors.error.withValues(alpha: 0.55),
+          iconColor: AppColors.error,
+          textColor: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFFFFB5AE)
+              : const Color(0xFF982B22),
         );
     }
+  }
+
+  Widget _buildStatusBadge(
+    BuildContext context, {
+    required double scale,
+    required String label,
+    required IconData icon,
+    required List<Color> backgroundColors,
+    required Color borderColor,
+    required Color iconColor,
+    required Color textColor,
+  }) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: 16 * scale,
+        vertical: 9 * scale,
+      ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: backgroundColors,
+        ),
+        border: Border.all(color: borderColor, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: borderColor.withValues(alpha: 0.14),
+            blurRadius: 18 * scale,
+            offset: Offset(0, 8 * scale),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 24 * scale,
+            height: 24 * scale,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: iconColor.withValues(alpha: 0.12),
+            ),
+            child: Icon(
+              icon,
+              size: 14 * scale,
+              color: iconColor,
+            ),
+          ),
+          SizedBox(width: 8 * scale),
+          Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 14 * scale,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2 * scale,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   List<String> _locationInfoLines(Subscription? activeSub) {
@@ -1248,7 +1354,8 @@ class _ServerRow extends StatelessWidget {
                         )
                       : Icon(Icons.public_rounded,
                           size: 24,
-                          color: isSelected ? AppColors.accent : c.textSecondary),
+                          color:
+                              isSelected ? AppColors.accent : c.textSecondary),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -1267,7 +1374,9 @@ class _ServerRow extends StatelessWidget {
                   Text(
                     _subtitle,
                     style: TextStyle(
-                      color: isSelected ? AppColors.accentGlow.withValues(alpha: 0.7) : c.textSecondary,
+                      color: isSelected
+                          ? AppColors.accentGlow.withValues(alpha: 0.7)
+                          : c.textSecondary,
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
                     ),
