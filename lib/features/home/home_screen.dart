@@ -400,54 +400,56 @@ class _HomeScreenState extends State<HomeScreen> {
     required Color iconColor,
     required Color textColor,
   }) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 16 * scale,
-        vertical: 9 * scale,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: backgroundColors,
+    return Center(
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: 16 * scale,
+          vertical: 9 * scale,
         ),
-        border: Border.all(color: borderColor, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: borderColor.withValues(alpha: 0.14),
-            blurRadius: 18 * scale,
-            offset: Offset(0, 8 * scale),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: backgroundColors,
           ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 24 * scale,
-            height: 24 * scale,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: iconColor.withValues(alpha: 0.12),
+          border: Border.all(color: borderColor, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: borderColor.withValues(alpha: 0.14),
+              blurRadius: 18 * scale,
+              offset: Offset(0, 8 * scale),
             ),
-            child: Icon(
-              icon,
-              size: 14 * scale,
-              color: iconColor,
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 24 * scale,
+              height: 24 * scale,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: iconColor.withValues(alpha: 0.12),
+              ),
+              child: Icon(
+                icon,
+                size: 14 * scale,
+                color: iconColor,
+              ),
             ),
-          ),
-          SizedBox(width: 8 * scale),
-          Text(
-            label,
-            style: TextStyle(
-              color: textColor,
-              fontSize: 14 * scale,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.2 * scale,
+            SizedBox(width: 8 * scale),
+            Text(
+              label,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 14 * scale,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.2 * scale,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
