@@ -44,6 +44,7 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
     _loadSelectedServer();
     _listenNativeStatus();
     _syncStatusWithNative();
+    unawaited(syncQuickSettingsConfig());
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -90,6 +91,7 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
     _selectedServer = server;
     notifyListeners();
     await StorageService.setSelectedServerId(server.id);
+    await syncQuickSettingsConfig();
 
     // Если сервер реально сменился и VPN уже активен — перезапускаем туннель.
     if (prevId == server.id) return;
@@ -153,6 +155,7 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
     _errorMessage = null;
 
     try {
+      await syncQuickSettingsConfig();
       await _channel.invokeMethod('connect', _selectedServerPayload);
       // Polling: раз в секунду спрашиваем у сервиса — вдруг push не дошёл
       _startConnectingPoll();
@@ -186,6 +189,7 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
     _errorMessage = null;
 
     try {
+      await syncQuickSettingsConfig();
       await _channel.invokeMethod('reconnect', _selectedServerPayload);
       _startConnectingPoll();
     } on MissingPluginException {
@@ -204,6 +208,7 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
         'rawUri': _selectedServer!.rawUri,
         'configJson': _buildSelectedServerConfig(),
         'ruRouting': StorageService.getRuRouting(),
+        'serverName': _selectedServer!.displayName,
         'windowsMode': StorageService.getWindowsVpnMode(),
         'host': _selectedServer!.host,
         'port': _selectedServer!.port,
@@ -211,6 +216,19 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
         'uuid': _selectedServer!.uuid,
         'extras': _selectedServer!.extras,
       };
+
+  Future<void> syncQuickSettingsConfig() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+
+    try {
+      if (_selectedServer == null) {
+        await _channel.invokeMethod('clearQuickSettingsConfig');
+        return;
+      }
+      await _channel.invokeMethod(
+          'syncQuickSettingsConfig', _selectedServerPayload);
+    } catch (_) {}
+  }
 
   String _buildSelectedServerConfig() {
     final mode = StorageService.getWindowsVpnMode();

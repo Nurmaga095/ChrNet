@@ -1,0 +1,18 @@
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {
+      "tag": "tun",
+      "port": 0,
+      "protocol": "tun",
+      "settings": {
+        "name": "chrnet0",
+        "MTU": 1500,
+        "userLevel": 8,
+        "autoRoute": true,
+        "strictRoute": true
+      }
+    }
+  ],
+  "outbounds": [{"tag":"direct","protocol":"freedom"}]
+}

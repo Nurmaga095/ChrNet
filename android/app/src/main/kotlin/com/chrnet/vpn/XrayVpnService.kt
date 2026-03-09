@@ -144,6 +144,7 @@ class XrayVpnService : VpnService() {
 
             isVpnRunning = true
             updateNotification("ChrNet активен")
+            QuickSettingsStore.requestTileRefresh(this)
             notifyConnected()
             startStatsThread()
         } catch (e: Exception) {
@@ -240,6 +241,7 @@ class XrayVpnService : VpnService() {
             try { coreController?.stopLoop(); coreController = null } catch (_: Exception) {}
             closeTun()
         }
+        QuickSettingsStore.requestTileRefresh(this)
         super.onDestroy()
     }
 
@@ -248,6 +250,7 @@ class XrayVpnService : VpnService() {
         stopStatsThread()
         try { coreController?.stopLoop(); coreController = null } catch (_: Exception) {}
         closeTun()
+        QuickSettingsStore.requestTileRefresh(this)
         if (notifyFlutter) {
             notifyDisconnected()
         }
@@ -500,7 +503,13 @@ class XrayVpnService : VpnService() {
 
     private fun notifyConnected() = postToFlutter("onConnected")
     private fun notifyDisconnected() = postToFlutter("onDisconnected")
-    private fun notifyError(msg: String) { postToFlutter("onError", msg); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+    private fun notifyError(msg: String) {
+        isVpnRunning = false
+        QuickSettingsStore.requestTileRefresh(this)
+        postToFlutter("onError", msg)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
 
     // ─── Android notification ─────────────────────────────────────────────────
 

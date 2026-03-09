@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/storage_service.dart';
@@ -21,7 +22,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _bypassLan;
   late bool _ruRouting;
   late String _windowsVpnMode;
+  late int _subscriptionAutoUpdateHours;
   final _dnsController = TextEditingController();
+  final _subscriptionAutoUpdateController = TextEditingController();
 
   @override
   void initState() {
@@ -31,12 +34,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _bypassLan = StorageService.getBypassLan();
     _ruRouting = StorageService.getRuRouting();
     _windowsVpnMode = StorageService.getWindowsVpnMode();
+    _subscriptionAutoUpdateHours =
+        StorageService.getSubscriptionAutoUpdateHours();
     _dnsController.text = _dns;
+    _subscriptionAutoUpdateController.text = _subscriptionAutoUpdateHours > 0
+        ? _subscriptionAutoUpdateHours.toString()
+        : '';
   }
 
   @override
   void dispose() {
     _dnsController.dispose();
+    _subscriptionAutoUpdateController.dispose();
     super.dispose();
   }
 
@@ -146,13 +155,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         bypassLan: _bypassLan,
         ruRouting: _ruRouting,
         windowsVpnMode: _windowsVpnMode,
+        subscriptionAutoUpdateHours: _subscriptionAutoUpdateHours,
         dnsController: _dnsController,
+        subscriptionAutoUpdateController: _subscriptionAutoUpdateController,
         onChanged: () => setState(() {
           _dns = StorageService.getDns();
           _autoStart = StorageService.getAutoStart();
           _bypassLan = StorageService.getBypassLan();
           _ruRouting = StorageService.getRuRouting();
           _windowsVpnMode = StorageService.getWindowsVpnMode();
+          _subscriptionAutoUpdateHours =
+              StorageService.getSubscriptionAutoUpdateHours();
+          _subscriptionAutoUpdateController.text =
+              _subscriptionAutoUpdateHours > 0
+                  ? _subscriptionAutoUpdateHours.toString()
+                  : '';
         }),
       ),
     );
@@ -314,7 +331,9 @@ class _SettingsSheet extends StatefulWidget {
   final bool bypassLan;
   final bool ruRouting;
   final String windowsVpnMode;
+  final int subscriptionAutoUpdateHours;
   final TextEditingController dnsController;
+  final TextEditingController subscriptionAutoUpdateController;
   final VoidCallback onChanged;
 
   const _SettingsSheet({
@@ -323,7 +342,9 @@ class _SettingsSheet extends StatefulWidget {
     required this.bypassLan,
     required this.ruRouting,
     required this.windowsVpnMode,
+    required this.subscriptionAutoUpdateHours,
     required this.dnsController,
+    required this.subscriptionAutoUpdateController,
     required this.onChanged,
   });
 
@@ -336,6 +357,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   late bool _bypassLan;
   late bool _ruRouting;
   late String _windowsVpnMode;
+  late int _subscriptionAutoUpdateHours;
 
   @override
   void initState() {
@@ -344,6 +366,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     _bypassLan = widget.bypassLan;
     _ruRouting = widget.ruRouting;
     _windowsVpnMode = widget.windowsVpnMode;
+    _subscriptionAutoUpdateHours = widget.subscriptionAutoUpdateHours;
   }
 
   @override
@@ -402,6 +425,73 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               }).toList(),
             ),
             const SizedBox(height: 20),
+            Text('Автообновление подписок',
+                style: TextStyle(color: c.textSecondary, fontSize: 13)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: widget.subscriptionAutoUpdateController,
+              style: TextStyle(color: c.textPrimary),
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              decoration: InputDecoration(
+                hintText: '0',
+                helperText: '0 - выключено, значение задаётся в часах',
+                suffixIcon: TextButton(
+                  onPressed: () async {
+                    final text =
+                        widget.subscriptionAutoUpdateController.text.trim();
+                    final hours = text.isEmpty ? 0 : int.tryParse(text);
+                    if (hours == null) return;
+
+                    await StorageService.setSubscriptionAutoUpdateHours(hours);
+                    setState(() => _subscriptionAutoUpdateHours = hours);
+                    widget.onChanged();
+                  },
+                  child: const Text(
+                    'Сохранить',
+                    style: TextStyle(color: AppColors.accent),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [0, 6, 12, 24].map((hours) {
+                final isSelected = _subscriptionAutoUpdateHours == hours;
+                return ActionChip(
+                  label: Text(
+                    hours == 0 ? 'Выкл' : '$hours ч',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isSelected ? Colors.white : AppColors.accent,
+                    ),
+                  ),
+                  backgroundColor: isSelected
+                      ? AppColors.accent
+                      : AppColors.accent.withValues(alpha: 0.08),
+                  side: BorderSide(
+                    color: isSelected ? AppColors.accent : AppColors.accent,
+                    width: 0.5,
+                  ),
+                  onPressed: () async {
+                    widget.subscriptionAutoUpdateController.text =
+                        hours == 0 ? '' : hours.toString();
+                    await StorageService.setSubscriptionAutoUpdateHours(hours);
+                    setState(() => _subscriptionAutoUpdateHours = hours);
+                    widget.onChanged();
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Подписки обновляются при запуске и пока приложение открыто.',
+              style: TextStyle(color: c.textDisabled, fontSize: 12),
+            ),
+            const SizedBox(height: 20),
             if (!kIsWeb &&
                 Theme.of(context).platform == TargetPlatform.windows) ...[
               Text('Режим VPN (Windows)',
@@ -454,6 +544,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                 final vpn = context.read<VpnProvider>();
                 await StorageService.setRuRouting(v);
                 setState(() => _ruRouting = v);
+                await vpn.syncQuickSettingsConfig();
                 widget.onChanged();
                 if (vpn.isConnected) await vpn.reconnect();
               },

@@ -83,50 +83,87 @@ class _PowerButtonState extends State<PowerButton>
     super.dispose();
   }
 
-  List<Color> get _gradientColors {
+  List<Color> _gradientColors(bool isDark) {
     switch (widget.status) {
       case VpnStatus.connected:
-        return [const Color(0xFF34D399), const Color(0xFF0F766E)];
+        return isDark
+            ? [const Color(0xFF34D399), const Color(0xFF0F766E)]
+            : [const Color(0xFFE7FFF6), const Color(0xFF94E7C4)];
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return [const Color(0xFF5EEAD4), const Color(0xFF0EA5E9)];
+        return isDark
+            ? [const Color(0xFF5EEAD4), const Color(0xFF0EA5E9)]
+            : [const Color(0xFFF0F8FF), const Color(0xFFB8D9FF)];
       case VpnStatus.error:
-        return [const Color(0xFFFF8A80), const Color(0xFFE53935)];
+        return isDark
+            ? [const Color(0xFFFF8A80), const Color(0xFFE53935)]
+            : [const Color(0xFFFFF1EF), const Color(0xFFF6B2AA)];
       case VpnStatus.disconnected:
-        return [const Color(0xFF55607F), const Color(0xFF262C46)];
+        return isDark
+            ? [const Color(0xFF55607F), const Color(0xFF262C46)]
+            : [const Color(0xFFF9FBFF), const Color(0xFFDCE5FF)];
     }
   }
 
-  Color get _glowColor {
+  Color _glowColor(bool isDark) {
     switch (widget.status) {
       case VpnStatus.connected:
-        return const Color(0xFF34D399);
+        return isDark ? const Color(0xFF34D399) : const Color(0xFF2BC48E);
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return const Color(0xFF4FD8FF);
+        return isDark ? const Color(0xFF4FD8FF) : const Color(0xFF5D9CFF);
       case VpnStatus.error:
         return AppColors.error;
       case VpnStatus.disconnected:
-        return const Color(0xFF6B789E);
+        return isDark ? const Color(0xFF6B789E) : const Color(0xFF9EB5E8);
     }
   }
 
-  List<Color> get _innerGradientColors {
+  List<Color> _innerGradientColors(bool isDark) {
     switch (widget.status) {
       case VpnStatus.connected:
-        return [const Color(0xFF1E8E73), const Color(0xFF0B4E50)];
+        return isDark
+            ? [const Color(0xFF1E8E73), const Color(0xFF0B4E50)]
+            : [const Color(0xFF65D9AA), const Color(0xFF149E74)];
       case VpnStatus.connecting:
       case VpnStatus.disconnecting:
-        return [const Color(0xFF1294A8), const Color(0xFF164C95)];
+        return isDark
+            ? [const Color(0xFF1294A8), const Color(0xFF164C95)]
+            : [const Color(0xFF8BC3FF), const Color(0xFF3E7FFF)];
       case VpnStatus.error:
-        return [const Color(0xFFD85A57), const Color(0xFF8E2525)];
+        return isDark
+            ? [const Color(0xFFD85A57), const Color(0xFF8E2525)]
+            : [const Color(0xFFF28D83), const Color(0xFFD94B42)];
       case VpnStatus.disconnected:
-        return [const Color(0xFF39415F), const Color(0xFF171C31)];
+        return isDark
+            ? [const Color(0xFF39415F), const Color(0xFF171C31)]
+            : [const Color(0xFFEEF4FF), const Color(0xFFD0DCFA)];
+    }
+  }
+
+  Color _iconColor(bool isDark) {
+    if (isDark) return Colors.white;
+    switch (widget.status) {
+      case VpnStatus.connected:
+        return Colors.white;
+      case VpnStatus.connecting:
+      case VpnStatus.disconnecting:
+        return Colors.white;
+      case VpnStatus.error:
+        return Colors.white;
+      case VpnStatus.disconnected:
+        return AppColors.accentDim;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final glowColor = _glowColor(isDark);
+    final gradientColors = _gradientColors(isDark);
+    final innerGradientColors = _innerGradientColors(isDark);
+    final iconColor = _iconColor(isDark);
+
     return GestureDetector(
       onTap: widget.onTap,
       child: AnimatedBuilder(
@@ -158,10 +195,10 @@ class _PowerButtonState extends State<PowerButton>
                       shape: BoxShape.circle,
                       gradient: RadialGradient(
                         colors: [
-                          _glowColor.withValues(
+                          glowColor.withValues(
                             alpha: widget.status == VpnStatus.disconnected
-                                ? 0.12
-                                : 0.22,
+                                ? (isDark ? 0.12 : 0.16)
+                                : (isDark ? 0.22 : 0.18),
                           ),
                           Colors.transparent,
                         ],
@@ -175,7 +212,7 @@ class _PowerButtonState extends State<PowerButton>
                     CustomPaint(
                       size: Size(size, size),
                       painter: _RipplePainter(
-                        color: _glowColor,
+                        color: glowColor,
                         progress: _rippleController.value,
                         scale: widget.scale,
                       ),
@@ -185,7 +222,7 @@ class _PowerButtonState extends State<PowerButton>
                   CustomPaint(
                     size: Size(size, size),
                     painter: _StaticRingsPainter(
-                      color: _glowColor,
+                      color: glowColor,
                       isActive: widget.status != VpnStatus.disconnected,
                       scale: widget.scale,
                     ),
@@ -198,7 +235,7 @@ class _PowerButtonState extends State<PowerButton>
                       child: CustomPaint(
                         size: Size(arcSize, arcSize),
                         painter:
-                            _ArcPainter(color: _glowColor, scale: widget.scale),
+                            _ArcPainter(color: glowColor, scale: widget.scale),
                       ),
                     ),
 
@@ -211,26 +248,24 @@ class _PowerButtonState extends State<PowerButton>
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: _gradientColors,
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.14),
-                        width: 1.2 * widget.scale,
+                        colors: gradientColors,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: _glowColor.withValues(
+                          color: glowColor.withValues(
                               alpha: widget.status == VpnStatus.disconnected
-                                  ? 0.25
-                                  : 0.5),
-                          blurRadius: 34 * widget.scale,
-                          spreadRadius: 4 * widget.scale,
-                          offset: Offset(0, 12 * widget.scale),
+                                  ? (isDark ? 0.25 : 0.18)
+                                  : (isDark ? 0.5 : 0.26)),
+                          blurRadius: (isDark ? 34 : 28) * widget.scale,
+                          spreadRadius: (isDark ? 4 : 1.5) * widget.scale,
+                          offset: Offset(0, (isDark ? 12 : 10) * widget.scale),
                         ),
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.18),
-                          blurRadius: 24 * widget.scale,
-                          offset: Offset(0, 10 * widget.scale),
+                          color: isDark
+                              ? Colors.black.withValues(alpha: 0.18)
+                              : const Color(0xFF9FB2D9).withValues(alpha: 0.24),
+                          blurRadius: (isDark ? 24 : 26) * widget.scale,
+                          offset: Offset(0, (isDark ? 10 : 12) * widget.scale),
                         ),
                       ],
                     ),
@@ -243,11 +278,7 @@ class _PowerButtonState extends State<PowerButton>
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
-                            colors: _innerGradientColors,
-                          ),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            width: 1.1 * widget.scale,
+                            colors: innerGradientColors,
                           ),
                         ),
                         child: Stack(
@@ -264,8 +295,12 @@ class _PowerButtonState extends State<PowerButton>
                                     begin: Alignment.topCenter,
                                     end: Alignment.bottomCenter,
                                     colors: [
-                                      Colors.white.withValues(alpha: 0.22),
-                                      Colors.white.withValues(alpha: 0.02),
+                                      Colors.white.withValues(
+                                        alpha: isDark ? 0.22 : 0.54,
+                                      ),
+                                      Colors.white.withValues(
+                                        alpha: isDark ? 0.02 : 0.08,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -285,9 +320,9 @@ class _PowerButtonState extends State<PowerButton>
                               Icon(
                                 Icons.power_settings_new_rounded,
                                 size: iconSize,
-                                color: Colors.white.withValues(
+                                color: iconColor.withValues(
                                   alpha: widget.status == VpnStatus.disconnected
-                                      ? 0.92
+                                      ? (isDark ? 0.92 : 1)
                                       : 1,
                                 ),
                               ),
