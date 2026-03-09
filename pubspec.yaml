@@ -18,7 +18,7 @@ dependencies:
   hive_flutter: ^1.1.0
 
   # QR Code scanner
-  mobile_scanner: ^5.0.0
+  mobile_scanner: ^7.2.0
 
   # HTTP for subscriptions
   http: ^1.2.0
