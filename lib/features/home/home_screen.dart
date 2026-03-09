@@ -11,6 +11,7 @@ import '../../core/models/vpn_stats.dart';
 import '../../core/services/deep_link_service.dart';
 import '../../core/services/import_service.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/subscription_service.dart';
 import '../../core/services/vpn_provider.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/power_button.dart';
@@ -37,8 +38,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final Map<String, int?> _tcpPingByServerId = {};
   OverlayEntry? _topNoticeEntry;
   Timer? _topNoticeTimer;
+  Timer? _subscriptionAutoRefreshTimer;
   StreamSubscription<String>? _deepLinkSub;
   bool _deepLinkProcessing = false;
+  bool _autoRefreshInProgress = false;
 
   double _s(double value) => value * _heroScale;
 
@@ -46,7 +49,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadAll();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkDeepLink());
+    _startSubscriptionAutoRefresh();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkDeepLink();
+      unawaited(_refreshDueSubscriptions());
+    });
     _deepLinkSub = DeepLinkService.urlStream.listen((url) {
       // Поглощаем pendingUrl чтобы _checkDeepLink не обработал его повторно
       DeepLinkService.consumePendingUrl();
@@ -78,6 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _deepLinkSub?.cancel();
     _topNoticeTimer?.cancel();
+    _subscriptionAutoRefreshTimer?.cancel();
     _topNoticeEntry?.remove();
     _topNoticeEntry = null;
     super.dispose();
@@ -92,6 +100,53 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _loadServers() => _loadAll();
+
+  void _startSubscriptionAutoRefresh() {
+    _subscriptionAutoRefreshTimer?.cancel();
+    _subscriptionAutoRefreshTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => unawaited(_refreshDueSubscriptions()),
+    );
+  }
+
+  Future<void> _refreshDueSubscriptions() async {
+    if (!mounted || _autoRefreshInProgress) return;
+
+    final intervalHours = StorageService.getSubscriptionAutoUpdateHours();
+    if (intervalHours <= 0) return;
+
+    final now = DateTime.now();
+    final dueSubscriptions = StorageService.getSubscriptions().where((sub) {
+      final lastUpdated = sub.lastUpdated;
+      if (lastUpdated == null) return true;
+      return now.difference(lastUpdated) >= Duration(hours: intervalHours);
+    }).toList();
+
+    if (dueSubscriptions.isEmpty) return;
+
+    _autoRefreshInProgress = true;
+    try {
+      final vpn = context.read<VpnProvider>();
+      var hasChanges = false;
+
+      for (final sub in dueSubscriptions) {
+        final result = await SubscriptionService.refreshSubscription(sub);
+        if (!mounted) return;
+        if (!result.success) continue;
+
+        hasChanges = true;
+        if (result.replacementSelectedServer != null) {
+          vpn.selectServer(result.replacementSelectedServer!);
+        }
+      }
+
+      if (hasChanges && mounted) {
+        _loadAll();
+      }
+    } finally {
+      _autoRefreshInProgress = false;
+    }
+  }
 
   void _syncPingCache() {
     final next = <String, int?>{};
@@ -108,6 +163,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final c = AppColors.of(context);
     return Consumer<VpnProvider>(
       builder: (context, vpn, _) {
+        final isMobileTopInsetPlatform =
+            Theme.of(context).platform == TargetPlatform.android ||
+                Theme.of(context).platform == TargetPlatform.iOS;
         final supportsQrScan =
             Theme.of(context).platform == TargetPlatform.android ||
                 Theme.of(context).platform == TargetPlatform.iOS;
@@ -115,76 +173,93 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Colors.transparent,
           body: Stack(
             children: [
-              ListView(
-                padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
-                children: [
-                  SizedBox(height: _s(16)),
-
-                  // ── Status / Timer ─────────────────────────────────────────────
-                  _buildStatusOrTimer(vpn, context, scale: _heroScale),
-                  SizedBox(height: _s(10)),
-
-                  // ── Power Button ───────────────────────────────────────────────
-                  Center(
-                    child: PowerButton(
-                      status: vpn.status,
-                      scale: _heroScale,
-                      onTap: () {
-                        if (vpn.selectedServer == null && _servers.isNotEmpty) {
-                          vpn.selectServer(_servers.first);
-                        }
-                        if (_servers.isNotEmpty) {
-                          vpn.toggleConnection();
-                        }
-                      },
-                    ),
-                  ),
-                  // ── Fixed-height area: stats + error (prevents list from jumping) ──
-                  SizedBox(
-                    height: _s(52),
-                    child: Center(
-                      child: vpn.errorMessage != null
-                          ? Text(
-                              vpn.errorMessage!,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  color: AppColors.error, fontSize: _s(12)),
-                            )
-                          : vpn.status == VpnStatus.connected
-                              ? StatsCard(stats: vpn.stats)
-                              : null,
-                    ),
-                  ),
-
-                  SizedBox(height: _s(10)),
-                  ..._buildSubscriptionSections(context, vpn),
-
-                  if (_subscriptions.isEmpty) ...[
-                    const SizedBox(height: 16),
+              SafeArea(
+                bottom: false,
+                child: ListView(
+                  padding:
+                      const EdgeInsets.only(left: 20, right: 20, bottom: 32),
+                  children: [
                     SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final messenger = ScaffoldMessenger.of(context);
-                          final result =
-                              await ImportService.importFromClipboard();
-                          _handleImportResult(messenger, result);
-                        },
-                        icon: const Icon(Icons.content_paste_rounded, size: 18),
-                        label: const Text('Из буфера'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.accent,
-                          side: const BorderSide(color: AppColors.accent),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
+                      height: _s(isMobileTopInsetPlatform ? 30 : 16),
+                    ),
+
+                    // ── Status / Timer ─────────────────────────────────────────────
+                    SizedBox(
+                      height: _s(48),
+                      child: Center(
+                        child: _buildStatusOrTimer(
+                          vpn,
+                          context,
+                          scale: _heroScale,
                         ),
                       ),
                     ),
-                  ], // if _subscriptions.isEmpty
-                  const SizedBox(height: 24),
-                ],
+                    SizedBox(height: _s(10)),
+
+                    // ── Power Button ───────────────────────────────────────────────
+                    Center(
+                      child: PowerButton(
+                        status: vpn.status,
+                        scale: _heroScale,
+                        onTap: () {
+                          if (vpn.selectedServer == null &&
+                              _servers.isNotEmpty) {
+                            vpn.selectServer(_servers.first);
+                          }
+                          if (_servers.isNotEmpty) {
+                            vpn.toggleConnection();
+                          }
+                        },
+                      ),
+                    ),
+                    // ── Fixed-height area: stats + error (prevents list from jumping) ──
+                    SizedBox(
+                      height: _s(52),
+                      child: Center(
+                        child: vpn.errorMessage != null
+                            ? Text(
+                                vpn.errorMessage!,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: AppColors.error, fontSize: _s(12)),
+                              )
+                            : vpn.status == VpnStatus.connected
+                                ? StatsCard(stats: vpn.stats)
+                                : null,
+                      ),
+                    ),
+
+                    SizedBox(height: _s(10)),
+                    ..._buildSubscriptionSections(context, vpn),
+
+                    if (_subscriptions.isEmpty) ...[
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            final result =
+                                await ImportService.importFromClipboard();
+                            _handleImportResult(messenger, result);
+                          },
+                          icon:
+                              const Icon(Icons.content_paste_rounded, size: 18),
+                          label: const Text('Из буфера'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.accent,
+                            side: const BorderSide(color: AppColors.accent),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ], // if _subscriptions.isEmpty
+                    const SizedBox(height: 24),
+                  ],
+                ),
               ), // ListView
               // ── Floating action buttons (top-right) ──────────────────────
               Positioned(
@@ -878,39 +953,17 @@ class _HomeScreenState extends State<HomeScreen> {
       type: _TopNoticeType.info,
     );
     try {
-      final result = await ImportService.importFromSubscriptionUrl(sub.url);
+      final result = await SubscriptionService.refreshSubscription(sub);
       if (!mounted) return;
-      if (result.result == ImportResult.success) {
-        final oldServers = StorageService.getServers()
-            .where((s) => s.subscriptionId == sub.id)
-            .toList();
-        for (final s in oldServers) {
-          await StorageService.deleteServer(s.id);
+      if (result.success) {
+        if (result.replacementSelectedServer != null) {
+          context.read<VpnProvider>().selectServer(
+                result.replacementSelectedServer!,
+              );
         }
-        final newServers = result.configs.map((c) {
-          c.subscriptionId = sub.id;
-          return c;
-        }).toList();
-        await StorageService.saveServers(newServers);
-        if (newServers.isNotEmpty && mounted) {
-          context.read<VpnProvider>().selectServer(newServers.first);
-        }
-        sub.lastUpdated = DateTime.now();
-        sub.serverCount = newServers.length;
-        if (result.profileTitle != null) sub.name = result.profileTitle!;
-        if (result.uploadBytes != null) sub.uploadBytes = result.uploadBytes;
-        if (result.downloadBytes != null) {
-          sub.downloadBytes = result.downloadBytes;
-        }
-        if (result.totalBytes != null) sub.totalBytes = result.totalBytes;
-        if (result.expireTimestamp != null) {
-          sub.expireTimestamp = result.expireTimestamp;
-        }
-        sub.description = result.description;
-        await StorageService.saveSubscription(sub);
         _showSnack(
           messenger,
-          'Подписка обновлена: ${newServers.length} серверов',
+          'Подписка обновлена: ${result.servers.length} серверов',
           isError: false,
         );
       } else {
@@ -1498,6 +1551,22 @@ class _AppBarButtonState extends State<_AppBarButton> {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final shellColors = isDark
+        ? [
+            AppColors.accent.withValues(alpha: _isHovered ? 0.28 : 0.2),
+            c.surfaceColor.withValues(alpha: _isHovered ? 0.9 : 0.82),
+          ]
+        : [
+            const Color(0xFFF9FBFF),
+            _isHovered ? const Color(0xFFDCE7FF) : const Color(0xFFEAF1FF),
+          ];
+    final borderColor = isDark
+        ? AppColors.accent.withValues(alpha: _isHovered ? 0.58 : 0.36)
+        : AppColors.accent.withValues(alpha: _isHovered ? 0.36 : 0.2);
+    final iconColor = isDark
+        ? AppColors.accentGlow.withValues(alpha: _isHovered ? 1 : 0.92)
+        : AppColors.accentDim.withValues(alpha: _isHovered ? 1 : 0.88);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -1516,26 +1585,29 @@ class _AppBarButtonState extends State<_AppBarButton> {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                AppColors.accent.withValues(alpha: _isHovered ? 0.28 : 0.2),
-                c.surfaceColor.withValues(alpha: _isHovered ? 0.9 : 0.82),
-              ],
+              colors: shellColors,
             ),
             border: Border.all(
-              color:
-                  AppColors.accent.withValues(alpha: _isHovered ? 0.58 : 0.36),
+              color: borderColor,
             ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.accent
-                    .withValues(alpha: _isHovered ? 0.24 : 0.14),
-                blurRadius: _isHovered ? 24 : 16,
-                offset: const Offset(0, 8),
+                color: isDark
+                    ? AppColors.accent
+                        .withValues(alpha: _isHovered ? 0.24 : 0.14)
+                    : AppColors.accent.withValues(
+                        alpha: _isHovered ? 0.18 : 0.1,
+                      ),
+                blurRadius:
+                    _isHovered ? (isDark ? 24 : 18) : (isDark ? 16 : 12),
+                offset: Offset(0, isDark ? 8 : 6),
               ),
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
+                color: isDark
+                    ? Colors.black.withValues(alpha: 0.18)
+                    : const Color(0xFFB7C5E3).withValues(alpha: 0.3),
+                blurRadius: isDark ? 16 : 18,
+                offset: Offset(0, isDark ? 8 : 10),
               ),
             ],
           ),
@@ -1549,15 +1621,17 @@ class _AppBarButtonState extends State<_AppBarButton> {
                   height: 6,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
-                    color: Colors.white
-                        .withValues(alpha: _isHovered ? 0.22 : 0.12),
+                    color: isDark
+                        ? Colors.white
+                            .withValues(alpha: _isHovered ? 0.22 : 0.12)
+                        : Colors.white
+                            .withValues(alpha: _isHovered ? 0.9 : 0.72),
                   ),
                 ),
               ),
               Icon(
                 widget.icon,
-                color: AppColors.accentGlow
-                    .withValues(alpha: _isHovered ? 1 : 0.92),
+                color: iconColor,
                 size: widget.iconSize,
               ),
             ],
