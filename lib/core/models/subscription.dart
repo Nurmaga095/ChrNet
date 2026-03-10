@@ -4,6 +4,7 @@ class Subscription {
   final String url;
   DateTime? lastUpdated;
   int serverCount;
+  List<String> dnsServers;
 
   // Данные из заголовка subscription-userinfo
   int? uploadBytes;
@@ -20,6 +21,7 @@ class Subscription {
     required this.url,
     this.lastUpdated,
     this.serverCount = 0,
+    this.dnsServers = const [],
     this.uploadBytes,
     this.downloadBytes,
     this.totalBytes,
@@ -42,8 +44,7 @@ class Subscription {
   // Осталось дней до истечения
   int? get daysLeft {
     if (expireTimestamp == null) return null;
-    final expire =
-        DateTime.fromMillisecondsSinceEpoch(expireTimestamp! * 1000);
+    final expire = DateTime.fromMillisecondsSinceEpoch(expireTimestamp! * 1000);
     final diff = expire.difference(DateTime.now()).inDays;
     return diff < 0 ? 0 : diff;
   }
@@ -58,6 +59,7 @@ class Subscription {
         'url': url,
         if (lastUpdated != null) 'lastUpdated': lastUpdated!.toIso8601String(),
         'serverCount': serverCount,
+        if (dnsServers.isNotEmpty) 'dnsServers': dnsServers,
         if (uploadBytes != null) 'uploadBytes': uploadBytes,
         if (downloadBytes != null) 'downloadBytes': downloadBytes,
         if (totalBytes != null) 'totalBytes': totalBytes,
@@ -73,6 +75,10 @@ class Subscription {
             ? DateTime.parse(j['lastUpdated'] as String)
             : null,
         serverCount: j['serverCount'] as int? ?? 0,
+        dnsServers: (j['dnsServers'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [],
         uploadBytes: (j['uploadBytes'] as num?)?.toInt(),
         downloadBytes: (j['downloadBytes'] as num?)?.toInt(),
         totalBytes: (j['totalBytes'] as num?)?.toInt(),

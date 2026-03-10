@@ -8,6 +8,7 @@ class StorageService {
   static const String _serversBox = 'servers_v2';
   static const String _subsBox = 'subscriptions_v2';
   static const String _settingsBox = 'settings';
+  static const int _settingsSchemaVersion = 101;
 
   static late Box<String> _serversB;
   static late Box<String> _subsB;
@@ -18,6 +19,24 @@ class StorageService {
     _serversB = await Hive.openBox<String>(_serversBox);
     _subsB = await Hive.openBox<String>(_subsBox);
     _settingsB = await Hive.openBox(_settingsBox);
+    await _runMigrations();
+  }
+
+  static Future<void> _runMigrations() async {
+    final storedVersion =
+        (_settingsB.get('settingsSchemaVersion') as int?) ?? 0;
+
+    if (storedVersion < 101) {
+      final currentWindowsMode = _settingsB.get('windowsVpnMode') as String?;
+      if (currentWindowsMode == null || currentWindowsMode == 'system_proxy') {
+        await _settingsB.put('windowsVpnMode', 'tunnel');
+      }
+      await _settingsB.delete('dns');
+    }
+
+    if (storedVersion != _settingsSchemaVersion) {
+      await _settingsB.put('settingsSchemaVersion', _settingsSchemaVersion);
+    }
   }
 
   // ─── Servers ──────────────────────────────────────────────────────────────
@@ -93,12 +112,6 @@ class StorageService {
     await _settingsB.put('selectedServerId', id);
   }
 
-  static String getDns() => (_settingsB.get('dns') as String?) ?? '1.1.1.1';
-
-  static Future<void> setDns(String dns) async {
-    await _settingsB.put('dns', dns);
-  }
-
   static bool getAutoStart() => (_settingsB.get('autoStart') as bool?) ?? false;
 
   static Future<void> setAutoStart(bool value) async {
@@ -118,7 +131,7 @@ class StorageService {
   }
 
   static String getWindowsVpnMode() =>
-      (_settingsB.get('windowsVpnMode') as String?) ?? 'system_proxy';
+      (_settingsB.get('windowsVpnMode') as String?) ?? 'tunnel';
 
   static Future<void> setWindowsVpnMode(String mode) async {
     await _settingsB.put('windowsVpnMode', mode);

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:io';
 import 'package:country_flags/country_flags.dart';
+import 'package:flutter/foundation.dart';
+import '../../core/utils/tcp_ping.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -42,8 +43,6 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<String>? _deepLinkSub;
   bool _deepLinkProcessing = false;
   bool _autoRefreshInProgress = false;
-
-  double _s(double value) => value * _heroScale;
 
   @override
   void initState() {
@@ -163,102 +162,45 @@ class _HomeScreenState extends State<HomeScreen> {
     final c = AppColors.of(context);
     return Consumer<VpnProvider>(
       builder: (context, vpn, _) {
+        final viewportWidth = MediaQuery.sizeOf(context).width;
         final isMobileTopInsetPlatform =
             Theme.of(context).platform == TargetPlatform.android ||
                 Theme.of(context).platform == TargetPlatform.iOS;
         final supportsQrScan =
             Theme.of(context).platform == TargetPlatform.android ||
                 Theme.of(context).platform == TargetPlatform.iOS;
+        final isTablet = viewportWidth >= 700;
+        final isWideTablet = viewportWidth >= 960;
+        final heroScale = isWideTablet
+            ? 0.86
+            : isTablet
+                ? 0.78
+                : _heroScale;
+        final contentMaxWidth = isWideTablet ? 1180.0 : 760.0;
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Stack(
             children: [
               SafeArea(
                 bottom: false,
-                child: ListView(
-                  padding:
-                      const EdgeInsets.only(left: 20, right: 20, bottom: 32),
-                  children: [
-                    SizedBox(
-                      height: _s(isMobileTopInsetPlatform ? 30 : 16),
-                    ),
-
-                    // ── Status / Timer ─────────────────────────────────────────────
-                    SizedBox(
-                      height: _s(48),
-                      child: Center(
-                        child: _buildStatusOrTimer(
-                          vpn,
-                          context,
-                          scale: _heroScale,
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: _s(10)),
-
-                    // ── Power Button ───────────────────────────────────────────────
-                    Center(
-                      child: PowerButton(
-                        status: vpn.status,
-                        scale: _heroScale,
-                        onTap: () {
-                          if (vpn.selectedServer == null &&
-                              _servers.isNotEmpty) {
-                            vpn.selectServer(_servers.first);
-                          }
-                          if (_servers.isNotEmpty) {
-                            vpn.toggleConnection();
-                          }
-                        },
-                      ),
-                    ),
-                    // ── Fixed-height area: stats + error (prevents list from jumping) ──
-                    SizedBox(
-                      height: _s(52),
-                      child: Center(
-                        child: vpn.errorMessage != null
-                            ? Text(
-                                vpn.errorMessage!,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    color: AppColors.error, fontSize: _s(12)),
-                              )
-                            : vpn.status == VpnStatus.connected
-                                ? StatsCard(stats: vpn.stats)
-                                : null,
-                      ),
-                    ),
-
-                    SizedBox(height: _s(10)),
-                    ..._buildSubscriptionSections(context, vpn),
-
-                    if (_subscriptions.isEmpty) ...[
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            final result =
-                                await ImportService.importFromClipboard();
-                            _handleImportResult(messenger, result);
-                          },
-                          icon:
-                              const Icon(Icons.content_paste_rounded, size: 18),
-                          label: const Text('Из буфера'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.accent,
-                            side: const BorderSide(color: AppColors.accent),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                    child: isWideTablet
+                        ? _buildWideLayout(
+                            context,
+                            vpn,
+                            scale: heroScale,
+                            isMobileTopInsetPlatform: isMobileTopInsetPlatform,
+                          )
+                        : _buildCompactLayout(
+                            context,
+                            vpn,
+                            scale: heroScale,
+                            isMobileTopInsetPlatform: isMobileTopInsetPlatform,
                           ),
-                        ),
-                      ),
-                    ], // if _subscriptions.isEmpty
-                    const SizedBox(height: 24),
-                  ],
+                  ),
                 ),
               ), // ListView
               // ── Floating action buttons (top-right) ──────────────────────
@@ -268,7 +210,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: SafeArea(
                   bottom: false,
                   child: Padding(
-                    padding: EdgeInsets.only(top: Platform.isWindows ? 34 : 0),
+                    padding: EdgeInsets.only(
+                        top: !kIsWeb &&
+                                defaultTargetPlatform == TargetPlatform.windows
+                            ? 34
+                            : 0),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -367,6 +313,188 @@ class _HomeScreenState extends State<HomeScreen> {
           ), // Stack
         );
       },
+    );
+  }
+
+  Widget _buildCompactLayout(
+    BuildContext context,
+    VpnProvider vpn, {
+    required double scale,
+    required bool isMobileTopInsetPlatform,
+  }) {
+    final spacing = 10 * scale;
+    return ListView(
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
+      children: [
+        SizedBox(height: scale * (isMobileTopInsetPlatform ? 30 : 16)),
+        _buildHeroSection(context, vpn, scale: scale),
+        SizedBox(height: spacing),
+        ..._buildSubscriptionSections(context, vpn),
+        if (_subscriptions.isEmpty) ...[
+          const SizedBox(height: 16),
+          _buildImportButton(context),
+        ],
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildWideLayout(
+    BuildContext context,
+    VpnProvider vpn, {
+    required double scale,
+    required bool isMobileTopInsetPlatform,
+  }) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        28,
+        scale * (isMobileTopInsetPlatform ? 20 : 12),
+        28,
+        32,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 340,
+            child: Column(
+              children: [
+                GlassCard(
+                  borderRadius: BorderRadius.circular(28),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                    child: _buildHeroSection(
+                      context,
+                      vpn,
+                      scale: scale,
+                      centered: true,
+                    ),
+                  ),
+                ),
+                if (_subscriptions.isEmpty) ...[
+                  const SizedBox(height: 16),
+                  GlassCard(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Добавьте конфигурацию',
+                            style: TextStyle(
+                              color: AppColors.of(context).textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Импортируйте VPN из буфера обмена или через QR-код.',
+                            style: TextStyle(
+                              color: AppColors.of(context).textSecondary,
+                              fontSize: 12.5,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          _buildImportButton(context),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              children: _buildSubscriptionSections(context, vpn),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeroSection(
+    BuildContext context,
+    VpnProvider vpn, {
+    required double scale,
+    bool centered = false,
+  }) {
+    final errorFontSize = 12 * scale;
+    return Column(
+      crossAxisAlignment:
+          centered ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 48 * scale,
+          child: Center(
+            child: _buildStatusOrTimer(
+              vpn,
+              context,
+              scale: scale,
+            ),
+          ),
+        ),
+        SizedBox(height: 10 * scale),
+        Center(
+          child: PowerButton(
+            status: vpn.status,
+            scale: scale,
+            onTap: () {
+              if (vpn.selectedServer == null && _servers.isNotEmpty) {
+                vpn.selectServer(_servers.first);
+              }
+              if (_servers.isNotEmpty) {
+                vpn.toggleConnection();
+              }
+            },
+          ),
+        ),
+        SizedBox(
+          height: 52 * scale,
+          child: Center(
+            child: vpn.errorMessage != null
+                ? Text(
+                    vpn.errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontSize: errorFontSize,
+                    ),
+                  )
+                : vpn.status == VpnStatus.connected
+                    ? StatsCard(stats: vpn.stats)
+                    : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImportButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed: () async {
+          final messenger = ScaffoldMessenger.of(context);
+          final result = await ImportService.importFromClipboard();
+          _handleImportResult(messenger, result);
+        },
+        icon: const Icon(Icons.content_paste_rounded, size: 18),
+        label: const Text('Из буфера'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.accent,
+          side: const BorderSide(color: AppColors.accent),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
     );
   }
 
@@ -766,6 +894,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (existing != null) {
           existing.lastUpdated = DateTime.now();
           existing.serverCount = res.configs.length;
+          existing.dnsServers = res.dnsServers;
           if (res.profileTitle != null) existing.name = res.profileTitle!;
           if (res.uploadBytes != null) existing.uploadBytes = res.uploadBytes;
           if (res.downloadBytes != null) {
@@ -792,6 +921,7 @@ class _HomeScreenState extends State<HomeScreen> {
             url: res.subscriptionUrl!,
             lastUpdated: DateTime.now(),
             serverCount: res.configs.length,
+            dnsServers: res.dnsServers,
             uploadBytes: res.uploadBytes,
             downloadBytes: res.downloadBytes,
             totalBytes: res.totalBytes,
@@ -1093,24 +1223,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<int?> _measureTcpPing(String host, int port) async {
-    final sw = Stopwatch()..start();
-    Socket? socket;
-    try {
-      socket = await Socket.connect(
-        host,
-        port,
-        timeout: const Duration(seconds: 3),
-      );
-      sw.stop();
-      final ms = sw.elapsedMilliseconds;
-      return ms <= 0 ? 1 : ms;
-    } catch (_) {
-      return null;
-    } finally {
-      socket?.destroy();
-    }
-  }
+  Future<int?> _measureTcpPing(String host, int port) =>
+      measureTcpPing(host, port);
 
   void _openSettings() {
     Navigator.of(context).push(

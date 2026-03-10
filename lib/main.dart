@@ -16,10 +16,19 @@ Future<void> main(List<String> args) async {
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final logicalSize = view.physicalSize / view.devicePixelRatio;
+    final shortestSide = math.min(logicalSize.width, logicalSize.height);
+    final isTablet = shortestSide >= 600;
+
+    await SystemChrome.setPreferredOrientations(
+      isTablet
+          ? DeviceOrientation.values
+          : [
+              DeviceOrientation.portraitUp,
+              DeviceOrientation.portraitDown,
+            ],
+    );
   }
 
   await StorageService.init();
