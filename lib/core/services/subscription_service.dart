@@ -64,6 +64,7 @@ class SubscriptionService {
 
     subscription.lastUpdated = DateTime.now();
     subscription.serverCount = nextServers.length;
+    subscription.dnsServers = result.dnsServers;
     if (result.profileTitle != null) {
       subscription.name = result.profileTitle!;
     }

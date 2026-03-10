@@ -5,6 +5,7 @@ import 'storage_service.dart';
 
 class XrayConfigBuilder {
   const XrayConfigBuilder._();
+  static const List<String> _fallbackDnsServers = ['1.1.1.1', '8.8.8.8'];
 
   static String buildProxyConfig(ServerConfig server) {
     return buildSystemProxyConfig(server);
@@ -14,6 +15,7 @@ class XrayConfigBuilder {
       {bool statsApi = false}) {
     final outbound = _buildOutbound(server);
     final ruRouting = StorageService.getRuRouting();
+    final dnsServers = _resolveDnsServers(server);
     final inbounds = <Map<String, dynamic>>[
       <String, dynamic>{
         'tag': 'socks-in',
@@ -52,7 +54,7 @@ class XrayConfigBuilder {
     final config = <String, dynamic>{
       'log': <String, dynamic>{'loglevel': 'warning'},
       'dns': <String, dynamic>{
-        'servers': <String>['1.1.1.1', '8.8.8.8'],
+        'servers': dnsServers,
       },
       'inbounds': inbounds,
       'outbounds': <Map<String, dynamic>>[
@@ -81,15 +83,17 @@ class XrayConfigBuilder {
     return jsonEncode(config);
   }
 
-  static String buildTunnelConfig(ServerConfig server, {bool statsApi = false}) {
+  static String buildTunnelConfig(ServerConfig server,
+      {bool statsApi = false}) {
     final outbound = _buildOutbound(server);
     final ruRouting = StorageService.getRuRouting();
-    final isIp = RegExp(r'^[\d.]+$').hasMatch(server.host) ||
-        server.host.contains(':');
+    final dnsServers = _resolveDnsServers(server);
+    final isIp =
+        RegExp(r'^[\d.]+$').hasMatch(server.host) || server.host.contains(':');
     final config = <String, dynamic>{
       'log': <String, dynamic>{'loglevel': 'warning'},
       'dns': <String, dynamic>{
-        'servers': <String>['1.1.1.1', '8.8.8.8'],
+        'servers': dnsServers,
       },
       'inbounds': <Map<String, dynamic>>[
         <String, dynamic>{
@@ -123,8 +127,10 @@ class XrayConfigBuilder {
           <String, dynamic>{
             'type': 'field',
             'outboundTag': 'direct',
-            if (isIp) 'ip': <String>[server.host]
-            else 'domain': <String>[server.host],
+            if (isIp)
+              'ip': <String>[server.host]
+            else
+              'domain': <String>[server.host],
           },
           // Local networks bypass TUN
           <String, dynamic>{
@@ -284,18 +290,18 @@ class XrayConfigBuilder {
   static const int _statsApiPort = 10853;
 
   static Map<String, dynamic> _statsApiInbound() => <String, dynamic>{
-    'tag': 'api-in',
-    'listen': '127.0.0.1',
-    'port': _statsApiPort,
-    'protocol': 'dokodemo-door',
-    'settings': <String, dynamic>{'address': '127.0.0.1'},
-  };
+        'tag': 'api-in',
+        'listen': '127.0.0.1',
+        'port': _statsApiPort,
+        'protocol': 'dokodemo-door',
+        'settings': <String, dynamic>{'address': '127.0.0.1'},
+      };
 
   static Map<String, dynamic> _statsApiRoutingRule() => <String, dynamic>{
-    'type': 'field',
-    'inboundTag': <String>['api-in'],
-    'outboundTag': 'api',
-  };
+        'type': 'field',
+        'inboundTag': <String>['api-in'],
+        'outboundTag': 'api',
+      };
 
   static List<Map<String, dynamic>> _russiaDirectRules() {
     return <Map<String, dynamic>>[
@@ -370,5 +376,20 @@ class XrayConfigBuilder {
     }
 
     return stream;
+  }
+
+  static List<String> _resolveDnsServers(ServerConfig server) {
+    final subscriptionId = server.subscriptionId;
+    if (subscriptionId == null) {
+      return _fallbackDnsServers;
+    }
+
+    for (final subscription in StorageService.getSubscriptions()) {
+      if (subscription.id == subscriptionId &&
+          subscription.dnsServers.isNotEmpty) {
+        return subscription.dnsServers;
+      }
+    }
+    return _fallbackDnsServers;
   }
 }

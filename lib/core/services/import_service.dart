@@ -11,6 +11,7 @@ class ImportResponse {
   final ImportResult result;
   final List<ServerConfig> configs;
   final String? error;
+  final List<String> dnsServers;
 
   // Данные подписки из заголовка subscription-userinfo
   final int? uploadBytes;
@@ -31,6 +32,7 @@ class ImportResponse {
     required this.result,
     required this.configs,
     required this.error,
+    this.dnsServers = const [],
     this.uploadBytes,
     this.downloadBytes,
     this.totalBytes,
@@ -122,6 +124,8 @@ class ImportService {
         );
       }
 
+      final dnsServers = _extractDnsServers(response.headers, body);
+
       // Парсим profile-title (название подписки)
       final profileTitleRaw = _headerValue(response.headers, 'profile-title');
       final profileTitle = profileTitleRaw != null
@@ -177,6 +181,7 @@ class ImportService {
         totalBytes: total,
         expireTimestamp: expire,
         subscriptionUrl: url,
+        dnsServers: dnsServers,
         description: description,
         profileTitle: profileTitle,
       );
@@ -256,6 +261,56 @@ class ImportService {
         .where((e) => e.key.toLowerCase() == lowerKey)
         .map((e) => e.value)
         .firstOrNull;
+  }
+
+  static List<String> _extractDnsServers(
+    Map<String, String> headers,
+    String body,
+  ) {
+    final seen = <String>{};
+    final dnsServers = <String>[];
+
+    void addValues(String? raw) {
+      if (raw == null) return;
+      final decoded = _decodeHeaderValue(raw);
+      final normalized = decoded
+          .replaceAll(RegExp(r'[\r\n]+'), ',')
+          .replaceAll(';', ',')
+          .trim();
+      if (normalized.isEmpty) return;
+
+      for (final token in normalized.split(',')) {
+        final value = token.trim();
+        if (value.isEmpty) continue;
+        if (value.contains('://')) continue;
+        if (seen.add(value)) {
+          dnsServers.add(value);
+        }
+      }
+    }
+
+    for (final key in const ['dns', 'x-dns', 'profile-dns']) {
+      addValues(_headerValue(headers, key));
+    }
+
+    String decodedBody = body.trim();
+    try {
+      decodedBody = utf8.decode(base64Decode(body.trim()));
+    } catch (_) {}
+
+    for (final line in decodedBody.split(RegExp(r'[\r\n]+'))) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      final match = RegExp(
+        r'^(?:[#;\/]{0,2}\s*)?dns\s*[:=]\s*(.+)$',
+        caseSensitive: false,
+      ).firstMatch(trimmed);
+      if (match != null) {
+        addValues(match.group(1));
+      }
+    }
+
+    return dnsServers;
   }
 
   /// Проверяет, является ли текст поддерживаемым URI
