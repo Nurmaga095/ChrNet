@@ -102,13 +102,16 @@ class XrayConfigBuilder {
           'protocol': 'tun',
           'settings': <String, dynamic>{
             'name': 'chrnet0',
-            'mtu': 1500,
+            'MTU': 1500,
             'userLevel': 8,
+            'address': <String>['10.0.0.1/24'],
             'autoRoute': true,
             'strictRoute': false,
           },
+          // Sniffing is only needed when ruRouting is on (domain-based rules).
+          // Disabling it reduces per-connection overhead in tunnel mode.
           'sniffing': <String, dynamic>{
-            'enabled': true,
+            'enabled': ruRouting,
             'destOverride': <String>['http', 'tls'],
           },
         },

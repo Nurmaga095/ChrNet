@@ -157,6 +157,11 @@ Add them to a TODO list instead of modifying large parts of the project.
 
 This file acts as persistent memory for AI agents.
 
+App versioning:
+- `pubspec.yaml` is the single source of truth for app version and build number.
+- Do not hardcode app versions in UI, platform resources, or installer scripts.
+- Current release version at the time of this note: `1.0.1+2`.
+
 Update this file if:
 
 - architecture changes

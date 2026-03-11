@@ -7,7 +7,7 @@
 #endif
 
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #error AppVersion is not defined. Pass /DAppVersion from pubspec.yaml version.
 #endif
 
 #ifndef OutputDir

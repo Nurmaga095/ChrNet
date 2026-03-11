@@ -1,14 +1,32 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include "vpn_service_bridge.h"
 
+#include <iphlpapi.h>
 #include <wininet.h>
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <optional>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 namespace {
+
+constexpr wchar_t kTunAdapterName[] = L"chrnet0";
+
+struct DefaultRouteInfo {
+  ULONG if_index = 0;
+  std::string gateway;
+  DWORD metric = 0;
+};
+
+struct AdapterInfo {
+  ULONG if_index = 0;
+  std::string ipv4;
+};
 
 std::string WideToUtf8(const std::wstring& value) {
   if (value.empty()) return "";
@@ -19,6 +37,16 @@ std::string WideToUtf8(const std::wstring& value) {
   WideCharToMultiByte(CP_UTF8, 0, value.c_str(),
                       static_cast<int>(value.size()), out.data(), length,
                       nullptr, nullptr);
+  return out;
+}
+
+std::wstring Utf8ToWide(const std::string& value) {
+  if (value.empty()) return L"";
+  int length = MultiByteToWideChar(CP_UTF8, 0, value.c_str(),
+                                   static_cast<int>(value.size()), nullptr, 0);
+  std::wstring out(static_cast<size_t>(length), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, value.c_str(),
+                      static_cast<int>(value.size()), out.data(), length);
   return out;
 }
 
@@ -45,6 +73,175 @@ bool IsRunningAsAdmin() {
   CheckTokenMembership(nullptr, admin_group, &is_admin);
   FreeSid(admin_group);
   return is_admin == TRUE;
+}
+
+std::string SockaddrToIpv4(const SOCKADDR* address) {
+  if (!address || address->sa_family != AF_INET) return {};
+
+  const auto* bytes =
+      reinterpret_cast<const unsigned char*>(address->sa_data + 2);
+  std::ostringstream out;
+  out << static_cast<int>(bytes[0]) << '.'
+      << static_cast<int>(bytes[1]) << '.'
+      << static_cast<int>(bytes[2]) << '.'
+      << static_cast<int>(bytes[3]);
+  return out.str();
+}
+
+std::optional<DefaultRouteInfo> GetDefaultRouteInfo() {
+  ULONG size = 0;
+  if (GetIpForwardTable(nullptr, &size, FALSE) != ERROR_INSUFFICIENT_BUFFER) {
+    return std::nullopt;
+  }
+
+  std::vector<std::byte> buffer(size);
+  auto* table =
+      reinterpret_cast<MIB_IPFORWARDTABLE*>(buffer.data());
+  if (GetIpForwardTable(table, &size, FALSE) != NO_ERROR) {
+    return std::nullopt;
+  }
+
+  std::optional<DefaultRouteInfo> best_route;
+  for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+    const auto& row = table->table[i];
+    if (row.dwForwardDest != 0 || row.dwForwardMask != 0) continue;
+    if (row.dwForwardNextHop == 0) continue;
+
+    const auto ip_value = row.dwForwardNextHop;
+    std::ostringstream ip;
+    ip << static_cast<int>(ip_value & 0xFF) << '.'
+       << static_cast<int>((ip_value >> 8) & 0xFF) << '.'
+       << static_cast<int>((ip_value >> 16) & 0xFF) << '.'
+       << static_cast<int>((ip_value >> 24) & 0xFF);
+
+    if (!best_route.has_value() ||
+        row.dwForwardMetric1 < best_route->metric) {
+      best_route = DefaultRouteInfo{
+          row.dwForwardIfIndex,
+          ip.str(),
+          row.dwForwardMetric1,
+      };
+    }
+  }
+
+  return best_route;
+}
+
+std::optional<AdapterInfo> FindTunAdapter(std::wstring_view adapter_name) {
+  // Use AF_UNSPEC so the adapter is found regardless of whether xray has
+  // assigned an IPv4 address to the wintun interface yet.
+  ULONG size = 0;
+  if (GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, nullptr,
+                           nullptr, &size) != ERROR_BUFFER_OVERFLOW) {
+    return std::nullopt;
+  }
+
+  std::vector<std::byte> buffer(size);
+  auto* addresses =
+      reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+  if (GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, nullptr,
+                           addresses, &size) != NO_ERROR) {
+    return std::nullopt;
+  }
+
+  for (auto* current = addresses; current != nullptr; current = current->Next) {
+    if (!current->FriendlyName ||
+        std::wstring_view(current->FriendlyName) != adapter_name) {
+      continue;
+    }
+    // Return the adapter even if no IPv4 address is assigned yet.
+    // We only need the interface index; autoRoute lets xray own the TUN routes.
+    std::string ipv4;
+    for (auto* unicast = current->FirstUnicastAddress; unicast != nullptr;
+         unicast = unicast->Next) {
+      ipv4 = SockaddrToIpv4(unicast->Address.lpSockaddr);
+      if (!ipv4.empty()) break;
+    }
+    return AdapterInfo{current->IfIndex, ipv4};
+  }
+
+  return std::nullopt;
+}
+
+std::vector<std::string> ResolveHostIPv4(const std::string& host) {
+  std::vector<std::string> result;
+  if (host.empty()) return result;
+
+  const auto is_ipv4 = std::all_of(host.begin(), host.end(), [](char ch) {
+    return (ch >= '0' && ch <= '9') || ch == '.';
+  });
+  if (is_ipv4) {
+    result.push_back(host);
+    return result;
+  }
+
+  SECURITY_ATTRIBUTES sa = {};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+
+  HANDLE read_pipe = nullptr;
+  HANDLE write_pipe = nullptr;
+  if (!CreatePipe(&read_pipe, &write_pipe, &sa, 0)) {
+    return result;
+  }
+  SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0);
+
+  wchar_t sys_root[MAX_PATH] = {};
+  if (GetEnvironmentVariableW(L"SystemRoot", sys_root, MAX_PATH) == 0) {
+    wcscpy_s(sys_root, L"C:\\Windows");
+  }
+  const auto powershell =
+      std::filesystem::path(sys_root) /
+      "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe";
+  std::wstring command =
+      L"\"" + powershell.wstring() +
+      L"\" -NoProfile -Command "
+      L"\"$ProgressPreference='SilentlyContinue'; "
+      L"Resolve-DnsName -Type A -Name '" +
+      Utf8ToWide(host) +
+      L"' -ErrorAction Stop | Select-Object -ExpandProperty IPAddress\"";
+
+  std::vector<wchar_t> cmdline(command.begin(), command.end());
+  cmdline.push_back(L'\0');
+
+  STARTUPINFOW si = {};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+  si.wShowWindow = SW_HIDE;
+  si.hStdOutput = write_pipe;
+  si.hStdError = write_pipe;
+
+  PROCESS_INFORMATION pi = {};
+  const bool ok = CreateProcessW(nullptr, cmdline.data(), nullptr, nullptr, TRUE,
+                                 CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+  CloseHandle(write_pipe);
+  if (!ok) {
+    CloseHandle(read_pipe);
+    return result;
+  }
+
+  std::string output;
+  char buffer[256];
+  DWORD bytes_read = 0;
+  while (ReadFile(read_pipe, buffer, sizeof(buffer), &bytes_read, nullptr) &&
+         bytes_read > 0) {
+    output.append(buffer, bytes_read);
+  }
+
+  WaitForSingleObject(pi.hProcess, 4000);
+  CloseHandle(pi.hProcess);
+  CloseHandle(pi.hThread);
+  CloseHandle(read_pipe);
+
+  std::istringstream lines(output);
+  for (std::string line; std::getline(lines, line);) {
+    line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+    if (line.empty()) continue;
+    if (std::find(result.begin(), result.end(), line) == result.end()) {
+      result.push_back(line);
+    }
+  }
+  return result;
 }
 
 }  // namespace
@@ -113,6 +310,7 @@ void VpnServiceBridge::HandleMethodCall(
     const auto* args =
         std::get_if<flutter::EncodableMap>(call.arguments());
     const auto config_json = ReadStringFromMap(args, "configJson");
+    const auto server_host = ReadStringFromMap(args, "host");
     if (!config_json || config_json->empty()) {
       result->Error("INVALID_ARG", "configJson is required for Windows");
       return;
@@ -125,11 +323,13 @@ void VpnServiceBridge::HandleMethodCall(
         std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
             result.release());
     std::string config_copy = *config_json;
-    std::thread([this, config_copy, use_system_proxy, shared_result]() {
+    std::string server_host_copy = server_host.value_or("");
+    std::thread([this, config_copy, use_system_proxy, server_host_copy,
+                 shared_result]() {
       std::lock_guard<std::mutex> lock(core_mutex_);
       StopCore();
       std::string error;
-      if (!StartCore(config_copy, use_system_proxy, error)) {
+      if (!StartCore(config_copy, use_system_proxy, server_host_copy, error)) {
         shared_result->Error("CORE_START_FAILED", error);
       } else {
         shared_result->Success();
@@ -143,6 +343,7 @@ void VpnServiceBridge::HandleMethodCall(
 
 bool VpnServiceBridge::StartCore(const std::string& config_json,
                                  bool use_system_proxy,
+                                 const std::string& server_host,
                                  std::string& error) {
   if (!use_system_proxy && !IsRunningAsAdmin()) {
     error = "Tunnel mode requires running the app as Administrator on Windows.";
@@ -179,19 +380,34 @@ bool VpnServiceBridge::StartCore(const std::string& config_json,
   std::vector<wchar_t> cmdline(cmd.begin(), cmd.end());
   cmdline.push_back(L'\0');
 
+  // Redirect xray stdout/stderr to a log file for diagnostics.
+  const auto log_path = runtime_dir / "xray.log";
+  SECURITY_ATTRIBUTES log_sa = {};
+  log_sa.nLength = sizeof(log_sa);
+  log_sa.bInheritHandle = TRUE;
+  HANDLE log_handle = CreateFileW(
+      log_path.wstring().c_str(),
+      GENERIC_WRITE, FILE_SHARE_READ, &log_sa,
+      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
   STARTUPINFOW si = {};
   si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESHOWWINDOW;
+  si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
   si.wShowWindow = SW_HIDE;
+  si.hStdOutput = (log_handle != INVALID_HANDLE_VALUE) ? log_handle : nullptr;
+  si.hStdError  = (log_handle != INVALID_HANDLE_VALUE) ? log_handle : nullptr;
 
   PROCESS_INFORMATION pi = {};
   const auto work_dir = xray_path.parent_path().wstring();
-  if (!CreateProcessW(nullptr, cmdline.data(), nullptr, nullptr, FALSE,
+  if (!CreateProcessW(nullptr, cmdline.data(), nullptr, nullptr,
+                      log_handle != INVALID_HANDLE_VALUE,  // bInheritHandles
                       CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
                       work_dir.c_str(), &si, &pi)) {
+    if (log_handle != INVALID_HANDLE_VALUE) CloseHandle(log_handle);
     error = "CreateProcess failed with code " + std::to_string(GetLastError());
     return false;
   }
+  if (log_handle != INVALID_HANDLE_VALUE) CloseHandle(log_handle);
 
   // Assign xray.exe to a Job Object so it is killed automatically when
   // chrnet.exe exits (even if it crashes or is force-terminated).
@@ -225,6 +441,11 @@ bool VpnServiceBridge::StartCore(const std::string& config_json,
     proxy_enabled_ = false;
   }
 
+  if (!use_system_proxy_ && !ConfigureTunnelRoutes(server_host, error)) {
+    StopCore();
+    return false;
+  }
+
   // Reset stats counters and start background polling thread.
   {
     std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -256,6 +477,7 @@ void VpnServiceBridge::StopCore() {
     RestoreProxyState();
     proxy_enabled_ = false;
   }
+  RestoreTunnelRoutes();
   is_running_ = false;
 }
 
@@ -274,6 +496,7 @@ bool VpnServiceBridge::IsCoreRunning() {
     RestoreProxyState();
     proxy_enabled_ = false;
   }
+  RestoreTunnelRoutes();
   is_running_ = false;
   return false;
 }
@@ -378,6 +601,190 @@ bool VpnServiceBridge::ApplyProxyState(DWORD flags, const std::wstring& server,
   InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
   InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
   return true;
+}
+
+bool VpnServiceBridge::ConfigureTunnelRoutes(const std::string& server_host,
+                                             std::string& error) {
+  tunnel_routes_ = {};
+
+  const auto default_route = GetDefaultRouteInfo();
+  if (!default_route.has_value()) {
+    error = "Failed to detect current default IPv4 route";
+    return false;
+  }
+
+  auto tun_adapter = FindTunAdapter(kTunAdapterName);
+  for (int attempt = 0; attempt < 12 && !tun_adapter.has_value(); ++attempt) {
+    // Stop waiting early if xray has already exited.
+    if (WaitForSingleObject(process_info_.hProcess, 0) != WAIT_TIMEOUT) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    tun_adapter = FindTunAdapter(kTunAdapterName);
+  }
+
+  if (!tun_adapter.has_value()) {
+    const auto log_hint = ResolveRuntimeDir() / "xray.log";
+    error = "TUN adapter chrnet0 was not created by Xray. "
+            "Check log: " + log_hint.string();
+    return false;
+  }
+
+  // Wait up to 2 s for xray to assign an IPv4 address (via the "address" config
+  // field). If it hasn't appeared by then, assign one ourselves via netsh so we
+  // don't have to wait 30–60 s for Windows APIPA auto-assignment.
+  for (int attempt = 0; attempt < 4 && tun_adapter->ipv4.empty(); ++attempt) {
+    if (WaitForSingleObject(process_info_.hProcess, 0) != WAIT_TIMEOUT) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    tun_adapter = FindTunAdapter(kTunAdapterName);
+  }
+
+  if (!tun_adapter.has_value()) {
+    const auto log_hint = ResolveRuntimeDir() / "xray.log";
+    error = "TUN adapter chrnet0 disappeared unexpectedly. "
+            "Check log: " + log_hint.string();
+    return false;
+  }
+
+  if (tun_adapter->ipv4.empty()) {
+    // xray did not assign an IP — do it ourselves via netsh.
+    wchar_t sys_dir[MAX_PATH] = {};
+    GetSystemDirectoryW(sys_dir, MAX_PATH);
+    const auto netsh = std::filesystem::path(sys_dir) / "netsh.exe";
+    std::wstring netsh_cmd =
+        L"\"" + netsh.wstring() +
+        L"\" interface ipv4 set address name=\"" +
+        std::wstring(kTunAdapterName) +
+        L"\" static 10.0.0.1 255.255.255.0";
+    std::vector<wchar_t> netsh_cmdline(netsh_cmd.begin(), netsh_cmd.end());
+    netsh_cmdline.push_back(L'\0');
+
+    STARTUPINFOW ns_si = {};
+    ns_si.cb = sizeof(ns_si);
+    ns_si.dwFlags = STARTF_USESHOWWINDOW;
+    ns_si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION ns_pi = {};
+    if (CreateProcessW(nullptr, netsh_cmdline.data(), nullptr, nullptr, FALSE,
+                       CREATE_NO_WINDOW, nullptr, nullptr, &ns_si, &ns_pi)) {
+      WaitForSingleObject(ns_pi.hProcess, 5000);
+      CloseHandle(ns_pi.hProcess);
+      CloseHandle(ns_pi.hThread);
+    }
+
+    // Wait for the IP to appear after the netsh command.
+    for (int attempt = 0; attempt < 6 && tun_adapter->ipv4.empty(); ++attempt) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      tun_adapter = FindTunAdapter(kTunAdapterName);
+    }
+  }
+
+  if (!tun_adapter.has_value() || tun_adapter->ipv4.empty()) {
+    const auto log_hint = ResolveRuntimeDir() / "xray.log";
+    error = "TUN adapter chrnet0 has no IPv4 address even after netsh. "
+            "Check log: " + log_hint.string();
+    return false;
+  }
+
+  tunnel_routes_.original_if_index = default_route->if_index;
+  tunnel_routes_.original_gateway = default_route->gateway;
+  tunnel_routes_.tun_if_index = tun_adapter->if_index;
+  tunnel_routes_.tun_gateway = tun_adapter->ipv4;
+  tunnel_routes_.server_ips = ResolveHostIPv4(server_host);
+
+  // Add a host route for the VPN server IP via the original gateway so its
+  // traffic bypasses the TUN, preventing a routing loop.
+  for (const auto& ip : tunnel_routes_.server_ips) {
+    std::wstringstream route_args;
+    route_args << L"ADD " << Utf8ToWide(ip)
+               << L" MASK 255.255.255.255 "
+               << Utf8ToWide(tunnel_routes_.original_gateway)
+               << L" METRIC 1 IF " << tunnel_routes_.original_if_index;
+    if (!RunRouteCommand(route_args.str())) {
+      RestoreTunnelRoutes();
+      error = "Failed to add direct route for VPN server " + ip;
+      return false;
+    }
+  }
+
+  // Route all IPv4 traffic through TUN with metric 1, overriding the physical
+  // default route. Split into two /1 routes to avoid conflicting with the
+  // existing 0.0.0.0/0 default route.
+  for (const auto& destination : {L"0.0.0.0", L"128.0.0.0"}) {
+    std::wstringstream route_args;
+    route_args << L"ADD " << destination
+               << L" MASK 128.0.0.0 "
+               << Utf8ToWide(tunnel_routes_.tun_gateway)
+               << L" METRIC 1 IF " << tunnel_routes_.tun_if_index;
+    if (!RunRouteCommand(route_args.str())) {
+      RestoreTunnelRoutes();
+      error = "Failed to route traffic through TUN adapter";
+      return false;
+    }
+  }
+
+  tunnel_routes_.configured = true;
+  return true;
+}
+
+void VpnServiceBridge::RestoreTunnelRoutes() {
+  if (!tunnel_routes_.configured) {
+    tunnel_routes_ = {};
+    return;
+  }
+
+  // Remove the 0.0.0.0/1 and 128.0.0.0/1 TUN routes we added.
+  for (const auto& destination : {L"0.0.0.0", L"128.0.0.0"}) {
+    std::wstringstream route_args;
+    route_args << L"DELETE " << destination
+               << L" MASK 128.0.0.0 "
+               << Utf8ToWide(tunnel_routes_.tun_gateway)
+               << L" IF " << tunnel_routes_.tun_if_index;
+    RunRouteCommand(route_args.str());
+  }
+
+  // Remove server host routes.
+  for (const auto& ip : tunnel_routes_.server_ips) {
+    std::wstringstream route_args;
+    route_args << L"DELETE " << Utf8ToWide(ip)
+               << L" MASK 255.255.255.255 "
+               << Utf8ToWide(tunnel_routes_.original_gateway)
+               << L" IF " << tunnel_routes_.original_if_index;
+    RunRouteCommand(route_args.str());
+  }
+
+  tunnel_routes_ = {};
+}
+
+bool VpnServiceBridge::RunRouteCommand(const std::wstring& arguments) {
+  wchar_t system_dir[MAX_PATH] = {};
+  const auto length = GetSystemDirectoryW(system_dir, MAX_PATH);
+  if (length == 0 || length >= MAX_PATH) {
+    return false;
+  }
+
+  const auto route_path = std::filesystem::path(system_dir) / "route.exe";
+  std::wstring command =
+      L"\"" + route_path.wstring() + L"\" " + arguments;
+  std::vector<wchar_t> cmdline(command.begin(), command.end());
+  cmdline.push_back(L'\0');
+
+  STARTUPINFOW si = {};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESHOWWINDOW;
+  si.wShowWindow = SW_HIDE;
+
+  PROCESS_INFORMATION pi = {};
+  if (!CreateProcessW(nullptr, cmdline.data(), nullptr, nullptr, FALSE,
+                      CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+    return false;
+  }
+
+  WaitForSingleObject(pi.hProcess, 5000);
+  DWORD exit_code = 1;
+  GetExitCodeProcess(pi.hProcess, &exit_code);
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
+  return exit_code == 0;
 }
 
 // ─── Stats polling ───────────────────────────────────────────────────────────
