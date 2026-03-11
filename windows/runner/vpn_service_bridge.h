@@ -1,10 +1,12 @@
 #ifndef RUNNER_VPN_SERVICE_BRIDGE_H_
 #define RUNNER_VPN_SERVICE_BRIDGE_H_
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
-
-#include <windows.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -12,8 +14,10 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 class VpnServiceBridge {
  public:
@@ -33,11 +37,20 @@ class VpnServiceBridge {
     int64_t upload = 0;
   };
 
+  struct TunnelRouteState {
+    bool configured = false;
+    ULONG original_if_index = 0;
+    ULONG tun_if_index = 0;
+    std::string original_gateway;
+    std::string tun_gateway;
+    std::vector<std::string> server_ips;
+  };
+
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
   bool StartCore(const std::string& config_json, bool use_system_proxy,
-                 std::string& error);
+                 const std::string& server_host, std::string& error);
   void StopCore();
   bool IsCoreRunning();
   std::filesystem::path ResolveXrayPath() const;
@@ -57,6 +70,10 @@ class VpnServiceBridge {
   std::string RunStatsQuery();
   StatsResult ParseStatsOutput(const std::string& json);
   StatsResult GetCurrentStats() const;
+  bool ConfigureTunnelRoutes(const std::string& server_host,
+                             std::string& error);
+  void RestoreTunnelRoutes();
+  static bool RunRouteCommand(const std::wstring& arguments);
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
   bool is_running_ = false;
@@ -66,6 +83,7 @@ class VpnServiceBridge {
   bool has_process_ = false;
   HANDLE job_handle_ = nullptr;
   ProxyState proxy_state_;
+  TunnelRouteState tunnel_routes_;
 
   // Stats state
   std::thread stats_thread_;

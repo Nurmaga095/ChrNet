@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/services/app_info_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/theme_provider.dart';
 import '../../core/services/vpn_provider.dart';
@@ -23,6 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late String _windowsVpnMode;
   late int _subscriptionAutoUpdateHours;
   final _subscriptionAutoUpdateController = TextEditingController();
+  String _appVersion = '...';
 
   @override
   void initState() {
@@ -36,12 +38,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _subscriptionAutoUpdateController.text = _subscriptionAutoUpdateHours > 0
         ? _subscriptionAutoUpdateHours.toString()
         : '';
+    _loadAppVersion();
   }
 
   @override
   void dispose() {
     _subscriptionAutoUpdateController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAppVersion() async {
+    final version = await AppInfoService.getVersion();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _appVersion = version);
   }
 
   @override
@@ -144,7 +155,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('ChrNet VPN  v1.0.1',
+            Text('ChrNet VPN  v$_appVersion',
                 style: TextStyle(color: c.textSecondary)),
             const SizedBox(height: 8),
             Text('Протоколы: VLESS · VMess · Trojan',
