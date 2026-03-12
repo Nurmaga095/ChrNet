@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../models/server_config.dart';
@@ -123,6 +124,11 @@ class ImportService {
           error: 'Конфиги не найдены в ответе',
         );
       }
+
+      // DEBUG: вывод всех заголовков ответа подписки
+      dev.log('=== SUBSCRIPTION HEADERS ===', name: 'ImportService');
+      response.headers.forEach((k, v) => dev.log('  $k: $v', name: 'ImportService'));
+      dev.log('============================', name: 'ImportService');
 
       final dnsServers = _extractDnsServers(response.headers, body);
 

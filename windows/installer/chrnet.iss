@@ -66,6 +66,26 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; S
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+// Завершает процесс chrnet.exe (в т.ч. из трея) перед установкой
+procedure KillRunningApp;
+var
+  ResultCode: Integer;
+begin
+  // Сначала мягко: посылаем WM_CLOSE через taskkill без /F
+  Exec('taskkill.exe', '/IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Ждём 1,5 сек — даём приложению сохранить состояние
+  Sleep(1500);
+  // Принудительно убиваем, если ещё висит (трей-иконка, зависший процесс)
+  Exec('taskkill.exe', '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(500);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  KillRunningApp;
+  Result := '';
+end;
+
 function NeedVCRedist: Boolean;
 var
   Installed: Cardinal;

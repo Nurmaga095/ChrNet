@@ -43,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<String>? _deepLinkSub;
   bool _deepLinkProcessing = false;
   bool _autoRefreshInProgress = false;
+  final Set<String> _collapsedSubs = {};
 
   @override
   void initState() {
@@ -653,7 +654,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (activeSub == null) return const [];
     return activeSub.description
         .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
+        .where((line) =>
+            line.isNotEmpty && !_isEmailLine(line) && !_isTelegramIdLine(line))
         .toList();
   }
 
@@ -689,6 +691,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     for (final sub in _subscriptions) {
       final subServers = bySubId[sub.id] ?? const <ServerConfig>[];
+      final isCollapsed = _collapsedSubs.contains(sub.id);
       final sectionChildren = <Widget>[];
 
       sectionChildren.add(
@@ -698,33 +701,50 @@ class _HomeScreenState extends State<HomeScreen> {
             subscription: sub,
             isRefreshing: _refreshing.contains(sub.id),
             isCheckingPing: _checkingPing.contains(sub.id),
+            isCollapsed: isCollapsed,
             onRefresh: () => _refreshSub(sub),
             onCheckPing: () => _checkTcpPingForSubscription(sub),
             onDelete: () => _deleteSub(sub),
+            onToggleCollapse: () => setState(() {
+              if (isCollapsed) {
+                _collapsedSubs.remove(sub.id);
+              } else {
+                _collapsedSubs.add(sub.id);
+              }
+            }),
           ),
         ),
       );
 
-      final infoLines = _locationInfoLines(sub);
-      if (infoLines.isNotEmpty) {
-        sectionChildren.add(Divider(height: 1, color: c.borderColor));
-        sectionChildren.add(
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            child: _buildLocationsInfo(context, infoLines),
-          ),
-        );
-      }
+      if (!isCollapsed) {
+        final infoLines = _locationInfoLines(sub);
+        if (infoLines.isNotEmpty) {
+          sectionChildren.add(Divider(height: 1, color: c.borderColor));
+          sectionChildren.add(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: _buildLocationsInfo(context, infoLines),
+            ),
+          );
+        }
 
-      if (subServers.isNotEmpty) {
-        sectionChildren.add(Divider(height: 1, color: c.borderColor));
-        sectionChildren.addAll(_buildServerRows(vpn, subServers));
+        if (subServers.isNotEmpty) {
+          sectionChildren.add(Divider(height: 1, color: c.borderColor));
+          sectionChildren.addAll(_buildServerRows(vpn, subServers));
+        }
       }
 
       sections.add(
         GlassCard(
           borderRadius: BorderRadius.circular(20),
-          child: Column(children: sectionChildren),
+          child: ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: Column(children: sectionChildren),
+            ),
+          ),
         ),
       );
     }
@@ -805,28 +825,29 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildLocationsInfo(BuildContext context, List<String> lines) {
     final c = AppColors.of(context);
+    // Email и TG ID теперь отображаются внутри _SubCard — здесь их пропускаем
+    final filtered = lines
+        .where((l) => !_isEmailLine(l) && !_isTelegramIdLine(l))
+        .toList();
+    if (filtered.isEmpty) return const SizedBox.shrink();
+    final widgets = <Widget>[];
+    for (int i = 0; i < filtered.length; i++) {
+      final line = filtered[i];
+      final bool isHighlighted = line.toLowerCase().contains('осталось');
+      widgets.add(Text(
+        line,
+        style: TextStyle(
+          color: c.textSecondary,
+          fontSize: isHighlighted ? 13 : 11.5,
+          height: 1.2,
+          fontWeight: isHighlighted ? FontWeight.w600 : FontWeight.w500,
+        ),
+      ));
+      if (i != filtered.length - 1) widgets.add(const SizedBox(height: 3));
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: lines
-          .asMap()
-          .entries
-          .expand((entry) => [
-                Text(
-                  entry.value,
-                  style: TextStyle(
-                    color: c.textSecondary,
-                    fontSize: entry.value.toLowerCase().contains('осталось')
-                        ? 13
-                        : 11.5,
-                    height: 1.2,
-                    fontWeight: entry.value.toLowerCase().contains('осталось')
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                  ),
-                ),
-                if (entry.key != lines.length - 1) const SizedBox(height: 3),
-              ])
-          .toList(),
+      children: widgets,
     );
   }
 
@@ -1258,23 +1279,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+bool _isEmailLine(String line) =>
+    RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(line.trim());
+
+bool _isTelegramIdLine(String line) {
+  final t = line.trim();
+  return RegExp(r'^user_\d+$').hasMatch(t) ||
+      RegExp(r'^@\w+$').hasMatch(t) ||
+      RegExp(r'^\d{5,}$').hasMatch(t);
+}
+
 // ─── Subscription Card ────────────────────────────────────────────────────────
 
 class _SubCard extends StatelessWidget {
   final Subscription subscription;
   final bool isRefreshing;
   final bool isCheckingPing;
+  final bool isCollapsed;
   final VoidCallback onRefresh;
   final VoidCallback onCheckPing;
   final VoidCallback onDelete;
+  final VoidCallback onToggleCollapse;
 
   const _SubCard({
     required this.subscription,
     required this.isRefreshing,
     required this.isCheckingPing,
+    required this.isCollapsed,
     required this.onRefresh,
     required this.onCheckPing,
     required this.onDelete,
+    required this.onToggleCollapse,
   });
 
   static const _months = [
@@ -1325,55 +1362,66 @@ class _SubCard extends StatelessWidget {
 
     return Column(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                _displayProjectName(subscription.name),
-                style: TextStyle(
-                  color: c.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Opacity(
-              opacity: isRefreshing ? 0.55 : 1,
-              child: InkWell(
-                onTap: isRefreshing ? null : onRefresh,
-                borderRadius: BorderRadius.circular(20),
-                child: const Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.refresh_rounded,
-                      size: 29, color: AppColors.accent),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Opacity(
-              opacity: isCheckingPing ? 0.55 : 1,
-              child: InkWell(
-                onTap: isCheckingPing ? null : onCheckPing,
-                borderRadius: BorderRadius.circular(20),
-                child: const Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.bolt_rounded,
-                      size: 27, color: AppColors.connected),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            InkWell(
-              onTap: onDelete,
-              borderRadius: BorderRadius.circular(20),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Icon(Icons.delete_outline_rounded,
+        InkWell(
+          onTap: onToggleCollapse,
+          borderRadius: BorderRadius.circular(12),
+          child: Row(
+            children: [
+              AnimatedRotation(
+                turns: isCollapsed ? -0.25 : 0,
+                duration: const Duration(milliseconds: 220),
+                child: Icon(Icons.expand_more_rounded,
                     size: 22, color: c.textSecondary),
               ),
-            ),
-          ],
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _displayProjectName(subscription.name),
+                  style: TextStyle(
+                    color: c.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Opacity(
+                opacity: isRefreshing ? 0.55 : 1,
+                child: InkWell(
+                  onTap: isRefreshing ? null : onRefresh,
+                  borderRadius: BorderRadius.circular(20),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.refresh_rounded,
+                        size: 29, color: AppColors.accent),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Opacity(
+                opacity: isCheckingPing ? 0.55 : 1,
+                child: InkWell(
+                  onTap: isCheckingPing ? null : onCheckPing,
+                  borderRadius: BorderRadius.circular(20),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.bolt_rounded,
+                        size: 27, color: AppColors.connected),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: onDelete,
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(Icons.delete_outline_rounded,
+                      size: 22, color: c.textSecondary),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 8),
         Divider(height: 1, color: c.borderColor),
@@ -1423,8 +1471,38 @@ class _SubCard extends StatelessWidget {
             ),
           ),
         ),
+        ..._buildUserInfoLines(c),
       ],
     );
+  }
+
+  List<Widget> _buildUserInfoLines(AppColors c) {
+    final lines = subscription.description
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    final email = lines.where(_isEmailLine).firstOrNull;
+    final tgId = lines.where(_isTelegramIdLine).firstOrNull;
+    if (email == null && tgId == null) return const [];
+    final style = TextStyle(
+      color: c.textSecondary,
+      fontSize: 11.5,
+      fontWeight: FontWeight.w500,
+      height: 1.3,
+    );
+    return [
+      const SizedBox(height: 4),
+      if (email != null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text('email: $email', style: style),
+        ),
+      if (tgId != null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text('TG ID: $tgId', style: style),
+        ),
+    ];
   }
 }
 
