@@ -112,7 +112,9 @@ class ChrNetApp extends StatelessWidget {
 
         return Stack(
           children: [
-            const Positioned.fill(child: _AuroraBackground()),
+            Positioned.fill(
+              child: ColoredBox(color: AppColors.of(context).background),
+            ),
             Positioned.fill(child: watermark),
             Positioned.fill(child: content),
           ],
@@ -121,131 +123,6 @@ class ChrNetApp extends StatelessWidget {
       home: const HomeScreen(),
     );
   }
-}
-
-// ─── Aurora Background ────────────────────────────────────────────────────────
-
-class _AuroraBackground extends StatefulWidget {
-  const _AuroraBackground();
-
-  @override
-  State<_AuroraBackground> createState() => _AuroraBackgroundState();
-}
-
-class _AuroraBackgroundState extends State<_AuroraBackground>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 14),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _ctrl,
-        builder: (_, __) => CustomPaint(
-          painter: _AuroraPainter(_ctrl.value, isDark),
-          child: const SizedBox.expand(),
-        ),
-      ),
-    );
-  }
-}
-
-class _AuroraPainter extends CustomPainter {
-  final double t;
-  final bool isDark;
-
-  const _AuroraPainter(this.t, this.isDark);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    const pi2 = math.pi * 2;
-
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, w, h),
-      Paint()
-        ..color = isDark ? const Color(0xFF08091A) : const Color(0xFFECEEFF),
-    );
-
-    _drawBlob(
-      canvas,
-      cx: w * (0.28 + 0.14 * math.sin(t * pi2 * 0.7)),
-      cy: h * (0.22 + 0.12 * math.cos(t * pi2 * 0.5)),
-      radius: w * 0.50,
-      color: isDark
-          ? const Color(0xFF1A3AFF).withValues(alpha: 0.28)
-          : const Color(0xFF90C2FF).withValues(alpha: 0.36),
-    );
-
-    _drawBlob(
-      canvas,
-      cx: w * (0.78 + 0.10 * math.cos(t * pi2 * 0.6)),
-      cy: h * (0.30 + 0.14 * math.sin(t * pi2 * 0.4)),
-      radius: w * 0.45,
-      color: isDark
-          ? const Color(0xFF7C1AFF).withValues(alpha: 0.22)
-          : const Color(0xFFD4A0FF).withValues(alpha: 0.28),
-    );
-
-    _drawBlob(
-      canvas,
-      cx: w * (0.50 + 0.10 * math.sin(t * pi2 * 0.9)),
-      cy: h * (0.68 + 0.10 * math.cos(t * pi2 * 0.7)),
-      radius: w * 0.40,
-      color: isDark
-          ? const Color(0xFF00B4D8).withValues(alpha: 0.16)
-          : const Color(0xFFA0E8F0).withValues(alpha: 0.25),
-    );
-
-    _drawBlob(
-      canvas,
-      cx: w * (0.15 + 0.08 * math.cos(t * pi2 * 1.1)),
-      cy: h * (0.80 + 0.08 * math.sin(t * pi2 * 0.8)),
-      radius: w * 0.35,
-      color: isDark
-          ? const Color(0xFFFF1A6B).withValues(alpha: 0.12)
-          : const Color(0xFFFFB8D0).withValues(alpha: 0.26),
-    );
-  }
-
-  void _drawBlob(
-    Canvas canvas, {
-    required double cx,
-    required double cy,
-    required double radius,
-    required Color color,
-  }) {
-    canvas.drawCircle(
-      Offset(cx, cy),
-      radius,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [color, color.withValues(alpha: 0)],
-        ).createShader(
-          Rect.fromCircle(center: Offset(cx, cy), radius: radius),
-        ),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_AuroraPainter old) => old.t != t || old.isDark != isDark;
 }
 
 class _BrandWatermarkPainter extends CustomPainter {

@@ -488,6 +488,25 @@ class _SettingsSheetState extends State<_SettingsSheet> {
           inputFormatters: [
             FilteringTextInputFormatter.digitsOnly,
           ],
+          onSubmitted: (_) async {
+            final text =
+                widget.subscriptionAutoUpdateController.text.trim();
+            final hours = text.isEmpty ? 0 : int.tryParse(text);
+            if (hours == null) return;
+            await StorageService.setSubscriptionAutoUpdateHours(hours);
+            setState(() => _subscriptionAutoUpdateHours = hours);
+            widget.onChanged();
+          },
+          onTapOutside: (_) async {
+            final text =
+                widget.subscriptionAutoUpdateController.text.trim();
+            final hours = text.isEmpty ? 0 : int.tryParse(text);
+            if (hours == null) return;
+            if (hours == _subscriptionAutoUpdateHours) return;
+            await StorageService.setSubscriptionAutoUpdateHours(hours);
+            setState(() => _subscriptionAutoUpdateHours = hours);
+            widget.onChanged();
+          },
           decoration: InputDecoration(
             hintText: '0',
             helperText: '0 - выключено, значение задаётся в часах',
