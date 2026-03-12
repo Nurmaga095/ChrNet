@@ -47,22 +47,25 @@ class StorageService {
             (s) => ServerConfig.fromJson(jsonDecode(s) as Map<String, dynamic>))
         .toList();
 
-    // For subscription servers, preserve provider-defined order from feed.
-    list.sort((a, b) {
-      final sameSub =
+    final indexed = list.indexed.toList();
+    indexed.sort((left, right) {
+      final a = left.$2;
+      final b = right.$2;
+      final sameSubscription =
           a.subscriptionId != null && a.subscriptionId == b.subscriptionId;
-      if (sameSub &&
+
+      if (sameSubscription &&
           a.subscriptionOrder != null &&
           b.subscriptionOrder != null) {
-        final byOrder = a.subscriptionOrder!.compareTo(b.subscriptionOrder!);
-        if (byOrder != 0) return byOrder;
+        final orderCompare =
+            a.subscriptionOrder!.compareTo(b.subscriptionOrder!);
+        if (orderCompare != 0) return orderCompare;
       }
 
-      final byAddedAt = a.addedAt.compareTo(b.addedAt);
-      if (byAddedAt != 0) return byAddedAt;
-      return a.id.compareTo(b.id);
+      return left.$1.compareTo(right.$1);
     });
-    return list;
+
+    return indexed.map((entry) => entry.$2).toList();
   }
 
   static Future<void> deleteServer(String id) async {

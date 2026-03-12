@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -112,8 +113,15 @@ class ChrNetApp extends StatelessWidget {
 
         return Stack(
           children: [
+            Positioned.fill(child: _AuroraBackground(isDark: isDark)),
             Positioned.fill(
-              child: ColoredBox(color: AppColors.of(context).background),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                child: ColoredBox(
+                  color: (isDark ? Colors.black : Colors.white)
+                      .withValues(alpha: 0.45),
+                ),
+              ),
             ),
             Positioned.fill(child: watermark),
             Positioned.fill(child: content),
@@ -124,6 +132,142 @@ class ChrNetApp extends StatelessWidget {
     );
   }
 }
+
+// ─── Aurora animated background ─────────────────────────────────────────────
+
+class _AuroraBackground extends StatefulWidget {
+  final bool isDark;
+  const _AuroraBackground({required this.isDark});
+
+  @override
+  State<_AuroraBackground> createState() => _AuroraBackgroundState();
+}
+
+class _AuroraBackgroundState extends State<_AuroraBackground>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 14),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) => CustomPaint(
+        painter: _AuroraPainter(_ctrl.value, widget.isDark),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _Blob {
+  final Color color;
+  final double dx, dy, r, speedX, speedY;
+  const _Blob({
+    required this.color,
+    required this.dx,
+    required this.dy,
+    required this.r,
+    required this.speedX,
+    required this.speedY,
+  });
+}
+
+class _AuroraPainter extends CustomPainter {
+  final double t;
+  final bool isDark;
+
+  const _AuroraPainter(this.t, this.isDark);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bg = isDark ? const Color(0xFF0D0F14) : const Color(0xFFF0F4FA);
+    canvas.drawRect(Offset.zero & size, Paint()..color = bg);
+
+    final blobs = isDark
+        ? [
+            const _Blob(
+              color: Color(0x501A237E),
+              dx: 0.15, dy: 0.2, r: 0.5,
+              speedX: 0.07, speedY: 0.05,
+            ),
+            const _Blob(
+              color: Color(0x400D47A1),
+              dx: 0.75, dy: 0.55, r: 0.45,
+              speedX: -0.05, speedY: 0.08,
+            ),
+            const _Blob(
+              color: Color(0x38311B92),
+              dx: 0.45, dy: 0.85, r: 0.4,
+              speedX: 0.06, speedY: -0.07,
+            ),
+            const _Blob(
+              color: Color(0x2801579B),
+              dx: 0.6, dy: 0.15, r: 0.38,
+              speedX: -0.08, speedY: 0.06,
+            ),
+          ]
+        : [
+            const _Blob(
+              color: Color(0x38BBDEFB),
+              dx: 0.15, dy: 0.2, r: 0.5,
+              speedX: 0.07, speedY: 0.05,
+            ),
+            const _Blob(
+              color: Color(0x301565C0),
+              dx: 0.75, dy: 0.55, r: 0.45,
+              speedX: -0.05, speedY: 0.08,
+            ),
+            const _Blob(
+              color: Color(0x28E3F2FD),
+              dx: 0.45, dy: 0.85, r: 0.4,
+              speedX: 0.06, speedY: -0.07,
+            ),
+            const _Blob(
+              color: Color(0x2090CAF9),
+              dx: 0.6, dy: 0.15, r: 0.38,
+              speedX: -0.08, speedY: 0.06,
+            ),
+          ];
+
+    final maxR = math.max(size.width, size.height);
+    for (final b in blobs) {
+      final x =
+          size.width * (b.dx + math.sin(t * math.pi * 2 * b.speedX) * 0.18);
+      final y =
+          size.height * (b.dy + math.cos(t * math.pi * 2 * b.speedY) * 0.18);
+      final r = maxR * b.r;
+      canvas.drawCircle(
+        Offset(x, y),
+        r,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [b.color, b.color.withValues(alpha: 0)],
+          ).createShader(Rect.fromCircle(center: Offset(x, y), radius: r)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_AuroraPainter old) =>
+      old.t != t || old.isDark != isDark;
+}
+
+// ─── Brand watermark ─────────────────────────────────────────────────────────
 
 class _BrandWatermarkPainter extends CustomPainter {
   final Color color;
