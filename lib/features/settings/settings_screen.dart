@@ -458,25 +458,6 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     final primarySection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('DNS', style: TextStyle(color: c.textSecondary, fontSize: 13)),
-        const SizedBox(height: 8),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: c.cardBackground,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: c.borderColor),
-          ),
-          child: Text(
-            'Берётся из подписки. Если DNS в подписке не указан, приложение использует встроенный fallback.',
-            style: TextStyle(
-              color: c.textSecondary,
-              fontSize: 13,
-              height: 1.35,
-            ),
-          ),
-        ),
         const SizedBox(height: 20),
         Text('Автообновление подписок',
             style: TextStyle(color: c.textSecondary, fontSize: 13)),

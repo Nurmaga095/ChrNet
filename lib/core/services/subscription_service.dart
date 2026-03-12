@@ -51,6 +51,7 @@ class SubscriptionService {
           ? server.copyWith(
               id: previous.id,
               addedAt: previous.addedAt,
+              subscriptionOrder: server.subscriptionOrder,
               subscriptionId: subscription.id,
             )
           : server.copyWith(subscriptionId: subscription.id);

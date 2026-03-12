@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 /// A frosted-glass container — iOS 26 Liquid Glass style.
 ///
@@ -22,6 +23,7 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = AppColors.of(context);
     final br = borderRadius ?? BorderRadius.circular(20);
     return ClipRRect(
       borderRadius: br,
@@ -39,15 +41,24 @@ class GlassCard extends StatelessWidget {
                       Colors.white.withValues(alpha: 0.04),
                     ]
                   : [
-                      Colors.white.withValues(alpha: 0.78),
-                      Colors.white.withValues(alpha: 0.55),
+                      colors.cardBackground.withValues(alpha: 0.92),
+                      colors.surfaceColor.withValues(alpha: 0.82),
                     ],
             ),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                      color: colors.borderColor.withValues(alpha: 0.28),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
             border: Border.all(
               color: isDark
                   ? Colors.white.withValues(alpha: 0.14)
-                  : Colors.white.withValues(alpha: 0.70),
-              width: 0.5,
+                  : colors.borderColor.withValues(alpha: 0.95),
+              width: isDark ? 0.5 : 0.9,
             ),
           ),
           padding: padding,

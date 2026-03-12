@@ -826,9 +826,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildLocationsInfo(BuildContext context, List<String> lines) {
     final c = AppColors.of(context);
     // Email и TG ID теперь отображаются внутри _SubCard — здесь их пропускаем
-    final filtered = lines
-        .where((l) => !_isEmailLine(l) && !_isTelegramIdLine(l))
-        .toList();
+    final filtered =
+        lines.where((l) => !_isEmailLine(l) && !_isTelegramIdLine(l)).toList();
     if (filtered.isEmpty) return const SizedBox.shrink();
     final widgets = <Widget>[];
     for (int i = 0; i < filtered.length; i++) {
@@ -1483,7 +1482,7 @@ class _SubCard extends StatelessWidget {
         .toList();
     final email = lines.where(_isEmailLine).firstOrNull;
     final tgId = lines.where(_isTelegramIdLine).firstOrNull;
-    if (email == null && tgId == null) return const [];
+    if (tgId == null && email == null) return const [];
     final style = TextStyle(
       color: c.textSecondary,
       fontSize: 11.5,
@@ -1492,15 +1491,15 @@ class _SubCard extends StatelessWidget {
     );
     return [
       const SizedBox(height: 4),
-      if (email != null)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text('email: $email', style: style),
-        ),
       if (tgId != null)
         Align(
           alignment: Alignment.centerLeft,
           child: Text('TG ID: $tgId', style: style),
+        )
+      else if (email != null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text('email: $email', style: style),
         ),
     ];
   }
@@ -1742,92 +1741,33 @@ class _AppBarButtonState extends State<_AppBarButton> {
 
   @override
   Widget build(BuildContext context) {
-    final c = AppColors.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final shellColors = isDark
-        ? [
-            AppColors.accent.withValues(alpha: _isHovered ? 0.28 : 0.2),
-            c.surfaceColor.withValues(alpha: _isHovered ? 0.9 : 0.82),
-          ]
-        : [
-            const Color(0xFFF9FBFF),
-            _isHovered ? const Color(0xFFDCE7FF) : const Color(0xFFEAF1FF),
-          ];
     final borderColor = isDark
-        ? AppColors.accent.withValues(alpha: _isHovered ? 0.58 : 0.36)
-        : AppColors.accent.withValues(alpha: _isHovered ? 0.36 : 0.2);
+        ? Colors.white.withValues(alpha: _isHovered ? 0.28 : 0.16)
+        : Colors.white.withValues(alpha: _isHovered ? 0.72 : 0.55);
+    final fillColor = isDark
+        ? Colors.white.withValues(alpha: _isHovered ? 0.14 : 0.09)
+        : Colors.white.withValues(alpha: _isHovered ? 0.62 : 0.48);
     final iconColor = isDark
-        ? AppColors.accentGlow.withValues(alpha: _isHovered ? 1 : 0.92)
+        ? Colors.white.withValues(alpha: _isHovered ? 1 : 0.88)
         : AppColors.accentDim.withValues(alpha: _isHovered ? 1 : 0.88);
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedScale(
-        scale: _isHovered ? 1.05 : 1,
+      child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOutCubic,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: shellColors,
-            ),
-            border: Border.all(
-              color: borderColor,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: isDark
-                    ? AppColors.accent
-                        .withValues(alpha: _isHovered ? 0.24 : 0.14)
-                    : AppColors.accent.withValues(
-                        alpha: _isHovered ? 0.18 : 0.1,
-                      ),
-                blurRadius:
-                    _isHovered ? (isDark ? 24 : 18) : (isDark ? 16 : 12),
-                offset: Offset(0, isDark ? 8 : 6),
-              ),
-              BoxShadow(
-                color: isDark
-                    ? Colors.black.withValues(alpha: 0.18)
-                    : const Color(0xFFB7C5E3).withValues(alpha: 0.3),
-                blurRadius: isDark ? 16 : 18,
-                offset: Offset(0, isDark ? 8 : 10),
-              ),
-            ],
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Positioned(
-                top: 5,
-                child: Container(
-                  width: 18,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    color: isDark
-                        ? Colors.white
-                            .withValues(alpha: _isHovered ? 0.22 : 0.12)
-                        : Colors.white
-                            .withValues(alpha: _isHovered ? 0.9 : 0.72),
-                  ),
-                ),
-              ),
-              Icon(
-                widget.icon,
-                color: iconColor,
-                size: widget.iconSize,
-              ),
-            ],
-          ),
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: fillColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor),
+        ),
+        child: Center(
+          child: Icon(widget.icon, color: iconColor, size: widget.iconSize),
         ),
       ),
     );
