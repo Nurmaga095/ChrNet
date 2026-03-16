@@ -1103,12 +1103,106 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   late String _windowsVpnMode;
   late int _subscriptionAutoUpdateHours;
   final _subscriptionAutoUpdateController = TextEditingController();
+  OverlayEntry? _topNoticeEntry;
+  Timer? _topNoticeTimer;
 
   int _normalizeSubscriptionAutoUpdateHours(int? hours) {
     if (hours == null || hours <= 0) {
       return StorageService.defaultSubscriptionAutoUpdateHours;
     }
+    if (hours > StorageService.maxSubscriptionAutoUpdateHours) {
+      return StorageService.maxSubscriptionAutoUpdateHours;
+    }
     return hours;
+  }
+
+  void _showAutoUpdateNotice(
+    String message, {
+    Color tint = AppColors.accent,
+    IconData icon = Icons.check_circle_outline_rounded,
+  }) {
+    if (!mounted) {
+      return;
+    }
+
+    _topNoticeTimer?.cancel();
+    _topNoticeEntry?.remove();
+    _topNoticeEntry = null;
+
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final key = GlobalKey<_TopNoticeHostState>();
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) {
+        final safeTop = MediaQuery.of(ctx).padding.top + 8;
+        final c = AppColors.of(ctx);
+        return Positioned(
+          top: safeTop,
+          left: 16,
+          right: 16,
+          child: _TopNoticeHost(
+            key: key,
+            child: IgnorePointer(
+              child: Material(
+                color: Colors.transparent,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: IntrinsicWidth(
+                    child: GlassCard(
+                      borderRadius: BorderRadius.circular(14),
+                      blur: 24,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 22,
+                              height: 22,
+                              decoration: BoxDecoration(
+                                color: tint,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(icon, color: Colors.white, size: 13),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              message,
+                              style: TextStyle(
+                                color: c.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(entry);
+    _topNoticeEntry = entry;
+    _topNoticeTimer = Timer(const Duration(seconds: 2), () async {
+      if (_topNoticeEntry != entry) {
+        return;
+      }
+      await key.currentState?.dismiss();
+      if (_topNoticeEntry == entry) {
+        entry.remove();
+        _topNoticeEntry = null;
+      }
+    });
   }
 
   @override
@@ -1119,6 +1213,9 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
 
   @override
   void dispose() {
+    _topNoticeTimer?.cancel();
+    _topNoticeEntry?.remove();
+    _topNoticeEntry = null;
     _subscriptionAutoUpdateController.dispose();
     super.dispose();
   }
@@ -1149,18 +1246,39 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
 
   Future<void> _saveSubscriptionAutoUpdateHours() async {
     final text = _subscriptionAutoUpdateController.text.trim();
-    final hours = text.isEmpty
+    final parsedHours = text.isEmpty
         ? StorageService.defaultSubscriptionAutoUpdateHours
         : int.tryParse(text);
-    if (hours == null) {
+    if (parsedHours == null) {
       return;
     }
-    final normalizedHours = _normalizeSubscriptionAutoUpdateHours(hours);
+    final normalizedHours = _normalizeSubscriptionAutoUpdateHours(parsedHours);
     if (normalizedHours == _subscriptionAutoUpdateHours) {
       _subscriptionAutoUpdateController.text = '$normalizedHours';
+      _showAutoUpdateNotice('Интервал уже сохранён: $normalizedHours ч.');
       return;
     }
     await _setSubscriptionAutoUpdateHours(normalizedHours);
+    if (!mounted) {
+      return;
+    }
+    if (text.isEmpty || parsedHours <= 0) {
+      _showAutoUpdateNotice(
+        'Сохранено: ${StorageService.defaultSubscriptionAutoUpdateHours} ч по умолчанию.',
+        tint: AppColors.warning,
+        icon: Icons.info_outline_rounded,
+      );
+      return;
+    }
+    if (parsedHours > StorageService.maxSubscriptionAutoUpdateHours) {
+      _showAutoUpdateNotice(
+        'Максимум 24 ч. Сохранено: ${StorageService.maxSubscriptionAutoUpdateHours} ч.',
+        tint: AppColors.warning,
+        icon: Icons.info_outline_rounded,
+      );
+      return;
+    }
+    _showAutoUpdateNotice('Интервал сохранён: $normalizedHours ч.');
   }
 
   @override
@@ -1447,6 +1565,29 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                         textAlignVertical: TextAlignVertical.center,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(2),
+                          TextInputFormatter.withFunction((oldValue, newValue) {
+                            final text = newValue.text;
+                            if (text.isEmpty) {
+                              return newValue;
+                            }
+                            final value = int.tryParse(text);
+                            if (value == null) {
+                              return oldValue;
+                            }
+                            if (value >
+                                StorageService.maxSubscriptionAutoUpdateHours) {
+                              const clamped =
+                                  '${StorageService.maxSubscriptionAutoUpdateHours}';
+                              return const TextEditingValue(
+                                text: clamped,
+                                selection: TextSelection.collapsed(
+                                  offset: 2,
+                                ),
+                              );
+                            }
+                            return newValue;
+                          }),
                         ],
                         onSubmitted: (_) => _saveSubscriptionAutoUpdateHours(),
                         onTapOutside: (_) => _saveSubscriptionAutoUpdateHours(),
@@ -1535,7 +1676,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Автообновление всегда включено. По умолчанию каждые 6 часов.',
+              'Автообновление всегда включено. Допустимый интервал: от 1 до 24 часов.',
               style: TextStyle(
                 color: c.textSecondary,
                 fontSize: 11.8,
@@ -1546,7 +1687,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
             controlGroup,
             const SizedBox(height: 8),
             Text(
-              'Минимум 1 час. Пустое значение сбрасывается на 6 часов.',
+              'Пустое значение или 0 сбрасываются на 6 часов. Больше 24 часов сохранить нельзя.',
               style: TextStyle(
                 color: c.textDisabled,
                 fontSize: 11.5,
@@ -1566,7 +1707,8 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
           buildSectionHeader(
             icon: Icons.autorenew_rounded,
             title: 'Автообновление',
-            subtitle: 'Автообновление всегда включено, интервал в часах.',
+            subtitle:
+                'Автообновление всегда включено, интервал от 1 до 24 часов.',
             accent: AppColors.accent,
             trailing: buildInfoPill(
               _subscriptionAutoUpdateLabel,
@@ -1651,7 +1793,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
             buildPresetChips(),
             const SizedBox(height: 12),
             Text(
-              'Автообновление всегда включено. По умолчанию интервал 6 часов. Проверка идёт при запуске и пока приложение открыто.',
+              'Автообновление всегда включено. Допустимый интервал: 1-24 часа, по умолчанию 6 часов. Проверка идёт при запуске и пока приложение открыто.',
               style: TextStyle(
                 color: c.textSecondary,
                 fontSize: 11.5,
@@ -2104,6 +2246,61 @@ class _SheetSwitch extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TopNoticeHost extends StatefulWidget {
+  final Widget child;
+
+  const _TopNoticeHost({super.key, required this.child});
+
+  @override
+  State<_TopNoticeHost> createState() => _TopNoticeHostState();
+}
+
+class _TopNoticeHostState extends State<_TopNoticeHost>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+    _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, -0.8),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    _controller.forward();
+  }
+
+  Future<void> dismiss() async {
+    if (_controller.isDismissed) {
+      return;
+    }
+    await _controller.reverse();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(
+        position: _slide,
+        child: widget.child,
       ),
     );
   }

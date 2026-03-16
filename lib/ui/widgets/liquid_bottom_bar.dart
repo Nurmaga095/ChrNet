@@ -20,54 +20,37 @@ class LiquidBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final c = AppColors.of(context);
-
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
         child: Center(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
+              filter: ImageFilter.blur(sigmaX: 32, sigmaY: 32),
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 236),
                 padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
                   gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: isDark
-                        ? [
-                            const Color(0xFF5B626B).withValues(alpha: 0.28),
-                            const Color(0xFF2E343B).withValues(alpha: 0.5),
-                          ]
-                        : [
-                            const Color(0xFFF4F6FA).withValues(alpha: 0.44),
-                            const Color(0xFFCDD6E2).withValues(alpha: 0.34),
-                          ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.10),
+                      Colors.white.withValues(alpha: 0.04),
+                    ],
                   ),
                   border: Border.all(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.12)
-                        : const Color(0xFFE3EAF3).withValues(alpha: 0.82),
-                    width: 1,
+                    color: Colors.white.withValues(alpha: 0.15),
+                    width: 1.0,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color:
-                          Colors.black.withValues(alpha: isDark ? 0.18 : 0.1),
-                      blurRadius: 12,
-                      offset: const Offset(0, 7),
-                    ),
-                    BoxShadow(
-                      color:
-                          Colors.white.withValues(alpha: isDark ? 0.04 : 0.22),
-                      blurRadius: 12,
-                      spreadRadius: 0.2,
+                      color: Colors.black.withValues(alpha: 0.30),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
@@ -79,7 +62,6 @@ class LiquidBottomBar extends StatelessWidget {
                         label: 'Подключение',
                         isActive: activeTab == LiquidBottomBarTab.connection,
                         onTap: onConnectionTap,
-                        textColor: c.textPrimary,
                       ),
                     ),
                     Expanded(
@@ -88,7 +70,6 @@ class LiquidBottomBar extends StatelessWidget {
                         label: 'Настройки',
                         isActive: activeTab == LiquidBottomBarTab.settings,
                         onTap: onSettingsTap,
-                        textColor: c.textPrimary,
                       ),
                     ),
                   ],
@@ -107,89 +88,102 @@ class _BarItem extends StatelessWidget {
   final String label;
   final bool isActive;
   final VoidCallback onTap;
-  final Color textColor;
 
   const _BarItem({
     required this.icon,
     required this.label,
     required this.isActive,
     required this.onTap,
-    required this.textColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final c = AppColors.of(context);
-    final activeForeground =
-        isDark ? Colors.white.withValues(alpha: 0.86) : const Color(0xFF172132);
-    final inactiveForeground =
-        isDark ? c.textSecondary : const Color(0xFF657084);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            gradient: isActive
-                ? LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: isDark
-                        ? [
-                            Colors.white.withValues(alpha: 0.2),
-                            Colors.white.withValues(alpha: 0.1),
-                          ]
-                        : [
-                            Colors.white.withValues(alpha: 0.44),
-                            const Color(0xFFDCE3EC).withValues(alpha: 0.36),
-                          ],
-                  )
-                : null,
-            color: isActive ? null : Colors.transparent,
-            border: Border.all(
-              color: isActive
-                  ? Colors.white.withValues(alpha: isDark ? 0.12 : 0.42)
-                  : Colors.transparent,
-              width: 1,
-            ),
-            boxShadow: isActive
-                ? [
-                    BoxShadow(
-                      color:
-                          Colors.black.withValues(alpha: isDark ? 0.12 : 0.08),
-                      blurRadius: 9,
-                      spreadRadius: 0.2,
-                      offset: const Offset(0, 3),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: Stack(
             children: [
-              Icon(
-                icon,
-                size: 14,
-                color: isActive ? activeForeground : inactiveForeground,
-              ),
-              const SizedBox(height: 1),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isActive ? activeForeground : textColor,
-                  fontSize: 9.8,
-                  fontWeight: FontWeight.w700,
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.center,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(999),
+                  gradient: isActive
+                      ? LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: const [0, 0.48, 1],
+                          colors: [
+                            Colors.white.withValues(alpha: 0.24),
+                            Colors.white.withValues(alpha: 0.10),
+                            Colors.white.withValues(alpha: 0.02),
+                          ],
+                        )
+                      : null,
+                  color: isActive ? null : Colors.transparent,
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            blurRadius: 14,
+                            spreadRadius: -1,
+                            offset: const Offset(0, 5),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      icon,
+                      size: 14,
+                      color: isActive ? Colors.white : c.textSecondary,
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isActive ? Colors.white : c.textSecondary,
+                        fontSize: 9.8,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              // Radial highlight — яркое пятно света сверху активной кнопки
+              if (isActive)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        gradient: RadialGradient(
+                          center: const Alignment(0, -1.3),
+                          radius: 0.9,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.40),
+                            Colors.white.withValues(alpha: 0.10),
+                            Colors.transparent,
+                          ],
+                          stops: const [0, 0.35, 0.75],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

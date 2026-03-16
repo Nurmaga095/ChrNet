@@ -7,7 +7,9 @@ class StorageService {
   static const String _serversBox = 'servers_v2';
   static const String _subsBox = 'subscriptions_v2';
   static const String _settingsBox = 'settings';
-  static const int _settingsSchemaVersion = 104;
+  static const int _settingsSchemaVersion = 105;
+  static const int minSubscriptionAutoUpdateHours = 1;
+  static const int maxSubscriptionAutoUpdateHours = 24;
   static const int defaultSubscriptionAutoUpdateHours = 6;
   static const String _privacyDisclosureVersionKey =
       'privacyDisclosureAcceptedVersion';
@@ -51,6 +53,18 @@ class StorageService {
         await _settingsB.put(
           'subscriptionAutoUpdateHours',
           defaultSubscriptionAutoUpdateHours,
+        );
+      }
+    }
+
+    if (storedVersion < 105) {
+      final autoUpdateHours =
+          _settingsB.get('subscriptionAutoUpdateHours') as int?;
+      if (autoUpdateHours != null &&
+          autoUpdateHours > maxSubscriptionAutoUpdateHours) {
+        await _settingsB.put(
+          'subscriptionAutoUpdateHours',
+          maxSubscriptionAutoUpdateHours,
         );
       }
     }
@@ -160,13 +174,21 @@ class StorageService {
     if (hours == null || hours <= 0) {
       return defaultSubscriptionAutoUpdateHours;
     }
+    if (hours > maxSubscriptionAutoUpdateHours) {
+      return maxSubscriptionAutoUpdateHours;
+    }
     return hours;
   }
 
   static Future<void> setSubscriptionAutoUpdateHours(int hours) async {
+    final normalizedHours = hours <= 0
+        ? defaultSubscriptionAutoUpdateHours
+        : hours > maxSubscriptionAutoUpdateHours
+            ? maxSubscriptionAutoUpdateHours
+            : hours;
     await _settingsB.put(
       'subscriptionAutoUpdateHours',
-      hours <= 0 ? defaultSubscriptionAutoUpdateHours : hours,
+      normalizedHours,
     );
   }
 
