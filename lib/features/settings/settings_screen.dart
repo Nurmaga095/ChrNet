@@ -1403,6 +1403,12 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
     }
 
     Widget buildAutoUpdateEditor({required bool desktopPanel}) {
+      final inputSurface = isDark
+          ? Colors.black.withValues(alpha: 0.18)
+          : Colors.white.withValues(alpha: 0.72);
+      final inputBorder = isDark
+          ? Colors.white.withValues(alpha: 0.08)
+          : glassBorder.withValues(alpha: 0.9);
       final controlGroup = Container(
         width: double.infinity,
         height: controlHeight,
@@ -1415,58 +1421,90 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
           children: [
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: TextField(
-                  controller: _subscriptionAutoUpdateController,
-                  style: TextStyle(
-                    color: c.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+                padding: const EdgeInsets.fromLTRB(6, 6, 8, 6),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: inputSurface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: inputBorder),
                   ),
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.done,
-                  textAlignVertical: TextAlignVertical.center,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
-                  onSubmitted: (_) => _saveSubscriptionAutoUpdateHours(),
-                  onTapOutside: (_) => _saveSubscriptionAutoUpdateHours(),
-                  decoration: InputDecoration(
-                    isCollapsed: true,
-                    border: InputBorder.none,
-                    hintText:
-                        '${StorageService.defaultSubscriptionAutoUpdateHours}',
-                    hintStyle: TextStyle(
-                      color: c.textDisabled,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextField(
+                        controller: _subscriptionAutoUpdateController,
+                        maxLines: 1,
+                        minLines: 1,
+                        cursorHeight: 18,
+                        style: TextStyle(
+                          color: c.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        textAlignVertical: TextAlignVertical.center,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        onSubmitted: (_) => _saveSubscriptionAutoUpdateHours(),
+                        onTapOutside: (_) => _saveSubscriptionAutoUpdateHours(),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          filled: false,
+                          fillColor: Colors.transparent,
+                          contentPadding: EdgeInsets.zero,
+                          border: InputBorder.none,
+                          hintText:
+                              '${StorageService.defaultSubscriptionAutoUpdateHours}',
+                          hintStyle: TextStyle(
+                            color: c.textDisabled,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-            Text(
-              'ч',
-              style: TextStyle(
-                color: c.textSecondary,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Center(
+                child: Text(
+                  'ч',
+                  style: TextStyle(
+                    color: c.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 10),
-            Container(
-              width: 1,
-              height: 18,
-              color: accentBorder,
+            Center(
+              child: Container(
+                width: 1,
+                height: 20,
+                color: accentBorder,
+              ),
             ),
             SizedBox(
               width: 44,
               height: controlHeight,
-              child: IconButton(
-                onPressed: _saveSubscriptionAutoUpdateHours,
-                splashRadius: 18,
-                icon: const Icon(Icons.check_rounded, size: 20),
-                color: c.textPrimary,
+              child: Center(
+                child: IconButton(
+                  onPressed: _saveSubscriptionAutoUpdateHours,
+                  splashRadius: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 36,
+                    height: 36,
+                  ),
+                  icon: const Icon(Icons.check_rounded, size: 20),
+                  color: c.textPrimary,
+                ),
               ),
             ),
           ],
