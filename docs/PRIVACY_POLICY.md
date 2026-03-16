@@ -6,13 +6,12 @@ Last updated: March 16, 2026
 
 ## 1. Who we are
 
-`ChrNet VPN` is developed and published by **[Developer / Company Name]**.
+`ChrNet VPN` is developed and published by **Nurmaga095 / ChrNet**.
 
 If you have privacy questions, contact:
 
-- Email: **[your-email@example.com]**
+- Email: **nurmaga907@gmail.com**
 - Telegram: **[@VSupportV]**
-- Website: **[https://your-site.example]**
 
 ## 2. Scope of this policy
 
@@ -141,8 +140,8 @@ We may update this Privacy Policy from time to time. The updated version will be
 
 For privacy requests and questions, contact:
 
-- Developer / Company: **[Developer / Company Name]**
-- Email: **[your-email@example.com]**
+- Developer / Company: **Nurmaga095 / ChrNet**
+- Email: **nurmaga907@gmail.com**
 - Telegram: **[@VSupportV]**
 
 ---
