@@ -60,6 +60,9 @@ class VpnServiceBridge {
   bool RestoreProxyState();
   static bool ApplyProxyState(DWORD flags, const std::wstring& server,
                               const std::wstring& bypass);
+  void CleanupStaleNetworkArtifacts();
+  void CleanupProxyIfChrNetOwned();
+  void CleanupStaleTunnelRoutes();
   static std::string GetComputerNameUtf8();
   static std::string GetWindowsVersion();
 

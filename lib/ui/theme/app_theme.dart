@@ -25,38 +25,26 @@ class AppColors extends ThemeExtension<AppColors> {
   });
 
   // ─── Статические константы (одинаковы в обеих темах) ─────────────────────
-  static const Color accent        = Color(0xFF2979FF);
-  static const Color accentDim     = Color(0xFF1565C0);
-  static const Color accentGlow    = Color(0xFF82B1FF);
-  static const Color connected     = Color(0xFF00C853);
+  static const Color accent = Color(0xFF38B7A7);
+  static const Color accentDim = Color(0xFF27877B);
+  static const Color accentGlow = Color(0xFFB7F2EA);
+  static const Color connected = Color(0xFF00C853);
   static const Color connectedGlow = Color(0xFF69F0AE);
-  static const Color error         = Color(0xFFEF5350);
-  static const Color warning       = Color(0xFFFFB300);
-  static const Color uploadCard    = Color(0xFF2979FF);
-  static const Color downloadCard  = Color(0xFF00C853);
-
-  // ─── Светлая тема ─────────────────────────────────────────────────────────
-  static const AppColors light = AppColors(
-    background:     Color(0xFFECEEFF),
-    cardBackground: Color(0xFFF5F6FF),
-    surfaceColor:   Color(0xFFEEF2FF),
-    borderColor:    Color(0xFFDDE0F5),
-    textPrimary:    Color(0xFF111827),
-    textSecondary:  Color(0xFF6B7280),
-    textDisabled:   Color(0xFFB0B7C3),
-    buttonIdle:     Color(0xFFE8EEFF),
-  );
+  static const Color error = Color(0xFFEF5350);
+  static const Color warning = Color(0xFFFFB300);
+  static const Color uploadCard = Color(0xFF38B7A7);
+  static const Color downloadCard = Color(0xFF00C853);
 
   // ─── Тёмная тема ──────────────────────────────────────────────────────────
   static const AppColors dark = AppColors(
-    background:     Color(0xFF08091A),
+    background: Color(0xFF08091A),
     cardBackground: Color(0xFF141628),
-    surfaceColor:   Color(0xFF1A2040),
-    borderColor:    Color(0xFF2A2D3E),
-    textPrimary:    Color(0xFFF0F2F5),
-    textSecondary:  Color(0xFF8B929E),
-    textDisabled:   Color(0xFF4A5160),
-    buttonIdle:     Color(0xFF1A2040),
+    surfaceColor: Color(0xFF18222B),
+    borderColor: Color(0xFF2A2D3E),
+    textPrimary: Color(0xFFF0F2F5),
+    textSecondary: Color(0xFF8B929E),
+    textDisabled: Color(0xFF4A5160),
+    buttonIdle: Color(0xFF18222B),
   );
 
   // ─── Получение из контекста ───────────────────────────────────────────────
@@ -75,28 +63,28 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? buttonIdle,
   }) =>
       AppColors(
-        background:     background     ?? this.background,
+        background: background ?? this.background,
         cardBackground: cardBackground ?? this.cardBackground,
-        surfaceColor:   surfaceColor   ?? this.surfaceColor,
-        borderColor:    borderColor    ?? this.borderColor,
-        textPrimary:    textPrimary    ?? this.textPrimary,
-        textSecondary:  textSecondary  ?? this.textSecondary,
-        textDisabled:   textDisabled   ?? this.textDisabled,
-        buttonIdle:     buttonIdle     ?? this.buttonIdle,
+        surfaceColor: surfaceColor ?? this.surfaceColor,
+        borderColor: borderColor ?? this.borderColor,
+        textPrimary: textPrimary ?? this.textPrimary,
+        textSecondary: textSecondary ?? this.textSecondary,
+        textDisabled: textDisabled ?? this.textDisabled,
+        buttonIdle: buttonIdle ?? this.buttonIdle,
       );
 
   @override
   AppColors lerp(AppColors? other, double t) {
     if (other == null) return this;
     return AppColors(
-      background:     Color.lerp(background,     other.background,     t)!,
+      background: Color.lerp(background, other.background, t)!,
       cardBackground: Color.lerp(cardBackground, other.cardBackground, t)!,
-      surfaceColor:   Color.lerp(surfaceColor,   other.surfaceColor,   t)!,
-      borderColor:    Color.lerp(borderColor,    other.borderColor,    t)!,
-      textPrimary:    Color.lerp(textPrimary,    other.textPrimary,    t)!,
-      textSecondary:  Color.lerp(textSecondary,  other.textSecondary,  t)!,
-      textDisabled:   Color.lerp(textDisabled,   other.textDisabled,   t)!,
-      buttonIdle:     Color.lerp(buttonIdle,     other.buttonIdle,     t)!,
+      surfaceColor: Color.lerp(surfaceColor, other.surfaceColor, t)!,
+      borderColor: Color.lerp(borderColor, other.borderColor, t)!,
+      textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
+      textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
+      textDisabled: Color.lerp(textDisabled, other.textDisabled, t)!,
+      buttonIdle: Color.lerp(buttonIdle, other.buttonIdle, t)!,
     );
   }
 }
@@ -104,8 +92,7 @@ class AppColors extends ThemeExtension<AppColors> {
 // ─── ThemeData ────────────────────────────────────────────────────────────────
 
 class AppTheme {
-  static ThemeData get light => _build(AppColors.light, Brightness.light);
-  static ThemeData get dark  => _build(AppColors.dark,  Brightness.dark);
+  static ThemeData get dark => _build(AppColors.dark, Brightness.dark);
 
   static ThemeData _build(AppColors c, Brightness brightness) {
     return ThemeData(
@@ -150,7 +137,7 @@ class AppTheme {
       ),
       textTheme: TextTheme(
         bodyMedium: TextStyle(color: c.textPrimary, fontSize: 14),
-        bodyLarge:  TextStyle(color: c.textPrimary, fontSize: 16),
+        bodyLarge: TextStyle(color: c.textPrimary, fontSize: 16),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -165,12 +152,19 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
+          borderSide: BorderSide(
+            color: brightness == Brightness.dark
+                ? AppColors.accent
+                : const Color(0xFFBECADB),
+            width: brightness == Brightness.dark ? 1.5 : 1.2,
+          ),
         ),
         hintStyle: TextStyle(color: c.textDisabled),
       ),
       dividerTheme: DividerThemeData(
-        color: c.borderColor, thickness: 1, space: 0,
+        color: c.borderColor,
+        thickness: 1,
+        space: 0,
       ),
       iconTheme: IconThemeData(color: c.textSecondary),
       cardTheme: CardThemeData(
@@ -185,11 +179,21 @@ class AppTheme {
         ),
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((_) => Colors.white),
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => brightness == Brightness.dark
+              ? Colors.white
+              : Colors.white.withValues(
+                  alpha: states.contains(WidgetState.selected) ? 0.98 : 0.94,
+                ),
+        ),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
-              ? AppColors.accent
-              : c.borderColor,
+              ? brightness == Brightness.dark
+                  ? AppColors.accent
+                  : const Color(0xFFD7E2EE)
+              : brightness == Brightness.dark
+                  ? c.borderColor
+                  : const Color(0xFFE8EEF5),
         ),
       ),
       fontFamily: 'Roboto',

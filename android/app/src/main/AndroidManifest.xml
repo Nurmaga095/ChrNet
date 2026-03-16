@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.chrnet.vpn">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- VPN разрешения -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,10 +9,8 @@
 
     <!-- Камера (QR-код) -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-
-    <!-- Автозапуск -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Вибрация -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -21,9 +18,7 @@
     <application
         android:label="ChrNet"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true"
-        android:networkSecurityConfig="@xml/network_security_config">
+        android:icon="@mipmap/ic_launcher">
 
         <!-- Flutter Activity -->
         <activity
@@ -76,15 +71,6 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
-
-        <!-- Автозапуск при загрузке -->
-        <receiver
-            android:name=".BootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
 
         <!-- Flutter meta-data -->
         <meta-data

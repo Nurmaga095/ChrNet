@@ -66,13 +66,13 @@ class XrayVpnService : VpnService() {
             }
             ACTION_RESTART -> {
                 val rawUri = intent.getStringExtra("config") ?: return START_NOT_STICKY
-                val ruRouting = intent.getBooleanExtra("ruRouting", false)
+                val ruRouting = intent.getBooleanExtra("ruRouting", true)
                 restartVpn(rawUri, ruRouting)
                 return START_STICKY
             }
         }
         val rawUri = intent?.getStringExtra("config") ?: return START_NOT_STICKY
-        val ruRouting = intent.getBooleanExtra("ruRouting", false)
+        val ruRouting = intent.getBooleanExtra("ruRouting", true)
         startVpn(rawUri, ruRouting)
         return START_STICKY
     }
@@ -80,6 +80,13 @@ class XrayVpnService : VpnService() {
     private fun startVpn(rawUri: String, ruRouting: Boolean, takeoverRetry: Int = 0) {
         val sessionId = ++activeSessionId
         intentionallyStopped = false
+        if (!isSecureTransport(rawUri)) {
+            notifyError(
+                "Для Android доступны только защищенные VPN-конфиги " +
+                    "(TLS, Reality, Trojan или Shadowsocks)."
+            )
+            return
+        }
         createNotificationChannel()
         try {
             startForegroundCompat("Подключение...")
@@ -148,6 +155,7 @@ class XrayVpnService : VpnService() {
             notifyConnected()
             startStatsThread()
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to start VPN", e)
             notifyError(e.message ?: "Ошибка запуска VPN")
         }
     }
@@ -334,7 +342,12 @@ class XrayVpnService : VpnService() {
                 })
                 put("sniffing", JSONObject().apply {
                     put("enabled", true)
-                    put("destOverride", JSONArray().apply { put("http"); put("tls") })
+                    put("routeOnly", true)
+                    put("destOverride", JSONArray().apply {
+                        put("http")
+                        put("tls")
+                        put("quic")
+                    })
                 })
             })
         })
@@ -349,22 +362,16 @@ class XrayVpnService : VpnService() {
             put("domainStrategy", "IPIfNonMatch")
             put("rules", JSONArray().apply {
                 put(JSONObject().apply {
-                    put("type", "field"); put("outboundTag", "direct")
+                    put("type", "field")
+                    put("inboundTag", JSONArray().apply { put("tun") })
+                    put("outboundTag", "direct")
                     put("ip", JSONArray().apply {
                         put("10.0.0.0/8"); put("172.16.0.0/12"); put("192.168.0.0/16"); put("127.0.0.0/8")
                     })
                 })
                 if (ruRouting) {
-                    put(JSONObject().apply {
-                        put("type", "field")
-                        put("outboundTag", "direct")
-                        put("domain", JSONArray().apply { put("geosite:category-ru") })
-                    })
-                    put(JSONObject().apply {
-                        put("type", "field")
-                        put("outboundTag", "direct")
-                        put("ip", JSONArray().apply { put("geoip:ru") })
-                    })
+                    put(buildRuDirectDomainRule())
+                    put(buildRuDirectIpRule())
                 }
                 put(JSONObject().apply {
                     put("type", "field")
@@ -374,6 +381,26 @@ class XrayVpnService : VpnService() {
             })
         })
         return config.toString()
+    }
+
+    private fun buildRuDirectDomainRule(): JSONObject = JSONObject().apply {
+        put("type", "field")
+        put("inboundTag", JSONArray().apply { put("tun") })
+        put("outboundTag", "direct")
+        put("domain", JSONArray().apply {
+            put("""regexp:(^|.*\.)ru$""")
+            put("""regexp:(^|.*\.)su$""")
+            put("""regexp:(^|.*\.)xn--p1ai$""")
+        })
+    }
+
+    private fun buildRuDirectIpRule(): JSONObject = JSONObject().apply {
+        put("type", "field")
+        put("inboundTag", JSONArray().apply { put("tun") })
+        put("outboundTag", "direct")
+        put("ip", JSONArray().apply {
+            put("geoip:ru")
+        })
     }
 
     private fun buildOutbound(uri: String): JSONObject = when {
@@ -489,6 +516,38 @@ class XrayVpnService : VpnService() {
             val i = p.indexOf('=')
             if (i >= 0) p.substring(0, i) to java.net.URLDecoder.decode(p.substring(i + 1), "UTF-8") else null
         }.toMap()
+    }
+
+    private fun isSecureTransport(uri: String): Boolean = try {
+        when {
+            uri.startsWith("trojan://", ignoreCase = true) -> true
+            uri.startsWith("ss://", ignoreCase = true) -> true
+            uri.startsWith("vless://", ignoreCase = true) -> {
+                val withoutScheme = uri.substring("vless://".length)
+                val hash = withoutScheme.lastIndexOf('#')
+                val main = if (hash >= 0) withoutScheme.substring(0, hash) else withoutScheme
+                val at = main.indexOf('@')
+                val hp = if (at >= 0) main.substring(at + 1) else main
+                val q = hp.indexOf('?')
+                val query = parseQuery(if (q >= 0) hp.substring(q + 1) else "")
+                when (query["security"]?.lowercase()) {
+                    "tls", "reality" -> true
+                    else -> false
+                }
+            }
+            uri.startsWith("vmess://", ignoreCase = true) -> {
+                val json = JSONObject(
+                    android.util.Base64.decode(
+                        padBase64(uri.substring("vmess://".length)),
+                        android.util.Base64.DEFAULT
+                    ).toString(Charsets.UTF_8)
+                )
+                json.optString("tls", "none").equals("tls", ignoreCase = true)
+            }
+            else -> false
+        }
+    } catch (_: Exception) {
+        false
     }
 
     private fun splitHostPort(hp: String): Pair<String, Int> {

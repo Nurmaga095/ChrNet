@@ -16,6 +16,7 @@
 namespace {
 
 constexpr wchar_t kTunAdapterName[] = L"chrnet0";
+constexpr wchar_t kChrNetProxyServer[] = L"127.0.0.1:10809";
 
 struct DefaultRouteInfo {
   ULONG if_index = 0;
@@ -27,6 +28,57 @@ struct AdapterInfo {
   ULONG if_index = 0;
   std::string ipv4;
 };
+
+std::string SockaddrToIpv4(const SOCKADDR* address);
+
+std::string ForwardValueToIpv4(DWORD value) {
+  std::ostringstream ip;
+  ip << static_cast<int>(value & 0xFF) << '.'
+     << static_cast<int>((value >> 8) & 0xFF) << '.'
+     << static_cast<int>((value >> 16) & 0xFF) << '.'
+     << static_cast<int>((value >> 24) & 0xFF);
+  return ip.str();
+}
+
+bool IsChrNetSplitRoute(const MIB_IPFORWARDROW& row) {
+  const auto destination = ForwardValueToIpv4(row.dwForwardDest);
+  const auto mask = ForwardValueToIpv4(row.dwForwardMask);
+  return mask == "128.0.0.0" &&
+         (destination == "0.0.0.0" || destination == "128.0.0.0");
+}
+
+std::optional<AdapterInfo> FindAdapterByIndex(ULONG if_index) {
+  ULONG size = 0;
+  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, nullptr,
+                           &size) != ERROR_BUFFER_OVERFLOW) {
+    return std::nullopt;
+  }
+
+  std::vector<std::byte> buffer(size);
+  auto* addresses =
+      reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+  if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, addresses,
+                           &size) != NO_ERROR) {
+    return std::nullopt;
+  }
+
+  for (auto* current = addresses; current != nullptr; current = current->Next) {
+    if (current->IfIndex != if_index) {
+      continue;
+    }
+
+    std::string ipv4;
+    for (auto* unicast = current->FirstUnicastAddress; unicast != nullptr;
+         unicast = unicast->Next) {
+      ipv4 = SockaddrToIpv4(unicast->Address.lpSockaddr);
+      if (!ipv4.empty()) break;
+    }
+
+    return AdapterInfo{current->IfIndex, ipv4};
+  }
+
+  return std::nullopt;
+}
 
 std::string WideToUtf8(const std::wstring& value) {
   if (value.empty()) return "";
@@ -107,18 +159,11 @@ std::optional<DefaultRouteInfo> GetDefaultRouteInfo() {
     if (row.dwForwardDest != 0 || row.dwForwardMask != 0) continue;
     if (row.dwForwardNextHop == 0) continue;
 
-    const auto ip_value = row.dwForwardNextHop;
-    std::ostringstream ip;
-    ip << static_cast<int>(ip_value & 0xFF) << '.'
-       << static_cast<int>((ip_value >> 8) & 0xFF) << '.'
-       << static_cast<int>((ip_value >> 16) & 0xFF) << '.'
-       << static_cast<int>((ip_value >> 24) & 0xFF);
-
     if (!best_route.has_value() ||
         row.dwForwardMetric1 < best_route->metric) {
       best_route = DefaultRouteInfo{
           row.dwForwardIfIndex,
-          ip.str(),
+          ForwardValueToIpv4(row.dwForwardNextHop),
           row.dwForwardMetric1,
       };
     }
@@ -244,6 +289,25 @@ std::vector<std::string> ResolveHostIPv4(const std::string& host) {
   return result;
 }
 
+std::string BindDirectOutboundToInterface(const std::string& config_json,
+                                          const std::string& interface_ip) {
+  if (interface_ip.empty()) {
+    return config_json;
+  }
+
+  const std::string needle = R"({"tag":"direct","protocol":"freedom"})";
+  const std::string replacement =
+      std::string(R"({"tag":"direct","protocol":"freedom","sendThrough":")") +
+      interface_ip + R"("})";
+
+  auto patched = config_json;
+  const auto pos = patched.find(needle);
+  if (pos != std::string::npos) {
+    patched.replace(pos, needle.size(), replacement);
+  }
+  return patched;
+}
+
 }  // namespace
 
 VpnServiceBridge::VpnServiceBridge(flutter::BinaryMessenger* messenger) {
@@ -255,6 +319,8 @@ VpnServiceBridge::VpnServiceBridge(flutter::BinaryMessenger* messenger) {
       [this](const auto& call, auto result) {
         HandleMethodCall(call, std::move(result));
       });
+
+  CleanupStaleNetworkArtifacts();
 }
 
 VpnServiceBridge::~VpnServiceBridge() {
@@ -365,6 +431,20 @@ bool VpnServiceBridge::StartCore(const std::string& config_json,
     return false;
   }
 
+  auto config_to_write = config_json;
+  if (!use_system_proxy) {
+    const auto default_route = GetDefaultRouteInfo();
+    if (default_route.has_value()) {
+      const auto adapter = FindAdapterByIndex(default_route->if_index);
+      if (adapter.has_value() && !adapter->ipv4.empty()) {
+        // In TUN mode direct traffic must be bound to the physical adapter,
+        // otherwise it can loop back into the TUN default routes.
+        config_to_write =
+            BindDirectOutboundToInterface(config_json, adapter->ipv4);
+      }
+    }
+  }
+
   const auto config_path = runtime_dir / "xray-config.json";
   {
     std::ofstream out(config_path, std::ios::binary | std::ios::trunc);
@@ -372,7 +452,8 @@ bool VpnServiceBridge::StartCore(const std::string& config_json,
       error = "Failed to write xray config file";
       return false;
     }
-    out.write(config_json.data(), static_cast<std::streamsize>(config_json.size()));
+    out.write(config_to_write.data(),
+              static_cast<std::streamsize>(config_to_write.size()));
   }
 
   std::wstring cmd = L"\"" + xray_path.wstring() + L"\" run -c \"" +
@@ -431,7 +512,7 @@ bool VpnServiceBridge::StartCore(const std::string& config_json,
   is_running_ = true;
 
   if (use_system_proxy_) {
-    if (!SetSystemProxy(L"127.0.0.1:10809")) {
+    if (!SetSystemProxy(kChrNetProxyServer)) {
       StopCore();
       error = "Failed to set Windows system proxy";
       return false;
@@ -478,6 +559,7 @@ void VpnServiceBridge::StopCore() {
     proxy_enabled_ = false;
   }
   RestoreTunnelRoutes();
+  CleanupStaleNetworkArtifacts();
   is_running_ = false;
 }
 
@@ -497,6 +579,7 @@ bool VpnServiceBridge::IsCoreRunning() {
     proxy_enabled_ = false;
   }
   RestoreTunnelRoutes();
+  CleanupStaleNetworkArtifacts();
   is_running_ = false;
   return false;
 }
@@ -601,6 +684,135 @@ bool VpnServiceBridge::ApplyProxyState(DWORD flags, const std::wstring& server,
   InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
   InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
   return true;
+}
+
+void VpnServiceBridge::CleanupStaleNetworkArtifacts() {
+  CleanupProxyIfChrNetOwned();
+  CleanupStaleTunnelRoutes();
+}
+
+void VpnServiceBridge::CleanupProxyIfChrNetOwned() {
+  INTERNET_PER_CONN_OPTION options[3] = {};
+  options[0].dwOption = INTERNET_PER_CONN_FLAGS;
+  options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
+  options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
+
+  INTERNET_PER_CONN_OPTION_LIST list = {};
+  list.dwSize = sizeof(list);
+  list.pszConnection = nullptr;
+  list.dwOptionCount = 3;
+  list.dwOptionError = 0;
+  list.pOptions = options;
+
+  DWORD size = sizeof(list);
+  if (!InternetQueryOptionW(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION,
+                            &list, &size)) {
+    return;
+  }
+
+  const DWORD flags = options[0].Value.dwValue;
+  const std::wstring server =
+      options[1].Value.pszValue ? options[1].Value.pszValue : L"";
+  const std::wstring bypass =
+      options[2].Value.pszValue ? options[2].Value.pszValue : L"";
+
+  if (options[1].Value.pszValue) GlobalFree(options[1].Value.pszValue);
+  if (options[2].Value.pszValue) GlobalFree(options[2].Value.pszValue);
+
+  const bool proxy_enabled = (flags & PROXY_TYPE_PROXY) != 0;
+  const bool looks_like_chrnet_proxy =
+      server.find(kChrNetProxyServer) != std::wstring::npos;
+  const bool matches_captured_state =
+      proxy_state_.captured &&
+      proxy_state_.flags == flags &&
+      proxy_state_.server == server &&
+      proxy_state_.bypass == bypass;
+
+  if (!proxy_enabled || !looks_like_chrnet_proxy || matches_captured_state) {
+    return;
+  }
+
+  ApplyProxyState(PROXY_TYPE_DIRECT, L"", L"");
+}
+
+void VpnServiceBridge::CleanupStaleTunnelRoutes() {
+  std::vector<ULONG> candidate_if_indices;
+  std::vector<std::string> candidate_next_hops;
+
+  const auto add_if_index = [&candidate_if_indices](ULONG if_index) {
+    if (if_index == 0) return;
+    if (std::find(candidate_if_indices.begin(), candidate_if_indices.end(),
+                  if_index) == candidate_if_indices.end()) {
+      candidate_if_indices.push_back(if_index);
+    }
+  };
+
+  const auto add_next_hop = [&candidate_next_hops](const std::string& ip) {
+    if (ip.empty()) return;
+    if (std::find(candidate_next_hops.begin(), candidate_next_hops.end(), ip) ==
+        candidate_next_hops.end()) {
+      candidate_next_hops.push_back(ip);
+    }
+  };
+
+  add_if_index(tunnel_routes_.tun_if_index);
+  add_next_hop(tunnel_routes_.tun_gateway);
+
+  if (const auto tun_adapter = FindTunAdapter(kTunAdapterName);
+      tun_adapter.has_value()) {
+    add_if_index(tun_adapter->if_index);
+    add_next_hop(tun_adapter->ipv4);
+  }
+
+  if (!candidate_if_indices.empty() || !candidate_next_hops.empty()) {
+    ULONG size = 0;
+    if (GetIpForwardTable(nullptr, &size, FALSE) == ERROR_INSUFFICIENT_BUFFER) {
+      std::vector<std::byte> buffer(size);
+      auto* table = reinterpret_cast<MIB_IPFORWARDTABLE*>(buffer.data());
+      if (GetIpForwardTable(table, &size, FALSE) == NO_ERROR) {
+        for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+          const auto& row = table->table[i];
+          if (!IsChrNetSplitRoute(row)) continue;
+
+          const bool matches_if_index =
+              std::find(candidate_if_indices.begin(),
+                        candidate_if_indices.end(),
+                        row.dwForwardIfIndex) != candidate_if_indices.end();
+          const auto next_hop = ForwardValueToIpv4(row.dwForwardNextHop);
+          const bool matches_next_hop =
+              std::find(candidate_next_hops.begin(),
+                        candidate_next_hops.end(),
+                        next_hop) != candidate_next_hops.end();
+
+          if (!matches_if_index && !matches_next_hop) continue;
+
+          auto row_copy = row;
+          DeleteIpForwardEntry(&row_copy);
+        }
+      }
+    }
+  }
+
+  for (const auto if_index : candidate_if_indices) {
+    for (const auto& destination : {L"0.0.0.0", L"128.0.0.0"}) {
+      std::wstringstream route_args;
+      route_args << L"DELETE " << destination
+                 << L" MASK 128.0.0.0 IF " << if_index;
+      RunRouteCommand(route_args.str());
+    }
+  }
+
+  for (const auto& next_hop : candidate_next_hops) {
+    for (const auto& destination : {L"0.0.0.0", L"128.0.0.0"}) {
+      std::wstringstream route_args;
+      route_args << L"DELETE " << destination
+                 << L" MASK 128.0.0.0 "
+                 << Utf8ToWide(next_hop);
+      RunRouteCommand(route_args.str());
+    }
+  }
+
+  tunnel_routes_ = {};
 }
 
 bool VpnServiceBridge::ConfigureTunnelRoutes(const std::string& server_host,

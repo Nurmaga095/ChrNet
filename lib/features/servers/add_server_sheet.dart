@@ -12,8 +12,9 @@ class AddServerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final supportsQrScan = Theme.of(context).platform == TargetPlatform.android ||
-        Theme.of(context).platform == TargetPlatform.iOS;
+    final supportsQrScan =
+        Theme.of(context).platform == TargetPlatform.android ||
+            Theme.of(context).platform == TargetPlatform.iOS;
     return Container(
       decoration: BoxDecoration(
         color: c.cardBackground,
@@ -95,7 +96,8 @@ class AddServerSheet extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => QrScanScreen(
                         onScanned: (uri) async {
-                          final result = await ImportService.importFromUri(uri);
+                          final result =
+                              await ImportService.importFromText(uri);
                           _handleResult(messenger, result);
                         },
                       ),
@@ -158,12 +160,14 @@ class AddServerSheet extends StatelessWidget {
                 final messenger = ScaffoldMessenger.of(context);
                 final nav = Navigator.of(context);
                 Navigator.pop(ctx); // close dialog
-                nav.pop();          // close bottom sheet
+                nav.pop(); // close bottom sheet
                 _showSnack(messenger, 'Загрузка подписки...', isError: false);
-                final result = await ImportService.importFromSubscriptionUrl(url);
+                final result =
+                    await ImportService.importFromSubscriptionUrl(url);
                 _handleResult(messenger, result);
               },
-              child: const Text('Загрузить', style: TextStyle(color: AppColors.accent)),
+              child: const Text('Загрузить',
+                  style: TextStyle(color: AppColors.accent)),
             ),
           ],
         );
@@ -209,11 +213,12 @@ class AddServerSheet extends StatelessWidget {
                 final messenger = ScaffoldMessenger.of(context);
                 final nav = Navigator.of(context);
                 Navigator.pop(ctx); // close dialog
-                nav.pop();          // close bottom sheet
+                nav.pop(); // close bottom sheet
                 final result = await ImportService.importFromUri(text);
                 _handleResult(messenger, result);
               },
-              child: const Text('Добавить', style: TextStyle(color: AppColors.accent)),
+              child: const Text('Добавить',
+                  style: TextStyle(color: AppColors.accent)),
             ),
           ],
         );
@@ -312,7 +317,7 @@ class _ImportOption extends StatelessWidget {
 
 // ─── QR Scanner Screen ────────────────────────────────────────────────────────
 class QrScanScreen extends StatefulWidget {
-  final void Function(String uri) onScanned;
+  final Future<void> Function(String uri) onScanned;
 
   const QrScanScreen({super.key, required this.onScanned});
 
@@ -321,8 +326,11 @@ class QrScanScreen extends StatefulWidget {
 }
 
 class _QrScanScreenState extends State<QrScanScreen> {
-  final MobileScannerController _scanner = MobileScannerController();
+  final MobileScannerController _scanner = MobileScannerController(
+    formats: [BarcodeFormat.qrCode],
+  );
   bool _scanned = false;
+  DateTime? _lastUnsupportedNoticeAt;
 
   @override
   void dispose() {
@@ -348,14 +356,51 @@ class _QrScanScreenState extends State<QrScanScreen> {
         children: [
           MobileScanner(
             controller: _scanner,
-            onDetect: (capture) {
+            onDetect: (capture) async {
               if (_scanned) return;
-              final barcode = capture.barcodes.firstOrNull;
-              final value = barcode?.rawValue;
-              if (value != null && ImportService.isValidVpnUri(value)) {
-                _scanned = true;
-                widget.onScanned(value);
-                Navigator.pop(context);
+
+              String? value;
+              var hasDetectedText = false;
+
+              for (final barcode in capture.barcodes) {
+                final candidates = [
+                  barcode.displayValue,
+                  barcode.url?.url,
+                  barcode.rawValue,
+                ];
+
+                for (final candidate in candidates) {
+                  final text = candidate?.trim();
+                  if (text == null || text.isEmpty) {
+                    continue;
+                  }
+                  hasDetectedText = true;
+                  if (ImportService.canImportText(text)) {
+                    value = text;
+                    break;
+                  }
+                }
+
+                if (value != null) {
+                  break;
+                }
+              }
+
+              if (value == null) {
+                if (hasDetectedText) {
+                  _showUnsupportedQrNotice();
+                }
+                return;
+              }
+
+              _scanned = true;
+              final navigator = Navigator.of(context);
+              navigator.pop();
+
+              try {
+                await widget.onScanned(value);
+              } catch (error, stackTrace) {
+                debugPrint('QR import failed: $error\n$stackTrace');
               }
             },
           ),
@@ -383,6 +428,30 @@ class _QrScanScreenState extends State<QrScanScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showUnsupportedQrNotice() {
+    final now = DateTime.now();
+    final lastShown = _lastUnsupportedNoticeAt;
+    if (lastShown != null &&
+        now.difference(lastShown) < const Duration(seconds: 2)) {
+      return;
+    }
+
+    _lastUnsupportedNoticeAt = now;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text(
+          'QR-код не содержит VPN-конфиг или ссылку подписки',
+        ),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }

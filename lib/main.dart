@@ -6,9 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/services/deep_link_service.dart';
 import 'core/services/storage_service.dart';
-import 'core/services/theme_provider.dart';
 import 'core/services/vpn_provider.dart';
 import 'features/home/home_screen.dart';
+import 'features/privacy/privacy_screens.dart';
 import 'ui/theme/app_theme.dart';
 
 Future<void> main(List<String> args) async {
@@ -32,6 +32,10 @@ Future<void> main(List<String> args) async {
     );
   }
 
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
   await StorageService.init();
 
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
@@ -48,7 +52,6 @@ Future<void> main(List<String> args) async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => VpnProvider()),
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
       child: const ChrNetApp(),
     ),
@@ -60,30 +63,18 @@ class ChrNetApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final themeMode = context.watch<ThemeProvider>().themeMode;
-
-    final isDark = themeMode == ThemeMode.dark ||
-        (themeMode == ThemeMode.system &&
-            MediaQuery.platformBrightnessOf(context) == Brightness.dark);
-
-    if (!kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS)) {
-      SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness:
-            isDark ? Brightness.light : Brightness.dark,
-      ));
-    }
+    const overlayStyle = SystemUiOverlayStyle(
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+      systemNavigationBarIconBrightness: Brightness.light,
+    );
 
     return MaterialApp(
       title: 'ChrNet VPN',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
+      theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
-      themeMode: themeMode,
+      themeMode: ThemeMode.dark,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
 
@@ -111,24 +102,28 @@ class ChrNetApp extends StatelessWidget {
           );
         }
 
-        return Stack(
-          children: [
-            Positioned.fill(child: _AuroraBackground(isDark: isDark)),
-            Positioned.fill(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-                child: ColoredBox(
-                  color: (isDark ? Colors.black : Colors.white)
-                      .withValues(alpha: 0.45),
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlayStyle,
+          child: Stack(
+            children: [
+              const Positioned.fill(child: _AuroraBackground(isDark: true)),
+              Positioned.fill(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.45),
+                  ),
                 ),
               ),
-            ),
-            Positioned.fill(child: watermark),
-            Positioned.fill(child: content),
-          ],
+              Positioned.fill(child: watermark),
+              Positioned.fill(child: content),
+            ],
+          ),
         );
       },
-      home: const HomeScreen(),
+      home: const PrivacyDisclosureGate(
+        child: HomeScreen(),
+      ),
     );
   }
 }
@@ -195,52 +190,76 @@ class _AuroraPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final bg = isDark ? const Color(0xFF0D0F14) : const Color(0xFFF0F4FA);
+    final bg = isDark ? const Color(0xFF0D0F14) : const Color(0xFFF4F7FC);
     canvas.drawRect(Offset.zero & size, Paint()..color = bg);
 
     final blobs = isDark
         ? [
             const _Blob(
               color: Color(0x501A237E),
-              dx: 0.15, dy: 0.2, r: 0.5,
-              speedX: 0.07, speedY: 0.05,
+              dx: 0.15,
+              dy: 0.2,
+              r: 0.5,
+              speedX: 0.07,
+              speedY: 0.05,
             ),
             const _Blob(
-              color: Color(0x400D47A1),
-              dx: 0.75, dy: 0.55, r: 0.45,
-              speedX: -0.05, speedY: 0.08,
+              color: Color(0x40307A74),
+              dx: 0.75,
+              dy: 0.55,
+              r: 0.45,
+              speedX: -0.05,
+              speedY: 0.08,
             ),
             const _Blob(
-              color: Color(0x38311B92),
-              dx: 0.45, dy: 0.85, r: 0.4,
-              speedX: 0.06, speedY: -0.07,
+              color: Color(0x3831556E),
+              dx: 0.45,
+              dy: 0.85,
+              r: 0.4,
+              speedX: 0.06,
+              speedY: -0.07,
             ),
             const _Blob(
-              color: Color(0x2801579B),
-              dx: 0.6, dy: 0.15, r: 0.38,
-              speedX: -0.08, speedY: 0.06,
+              color: Color(0x284AA89D),
+              dx: 0.6,
+              dy: 0.15,
+              r: 0.38,
+              speedX: -0.08,
+              speedY: 0.06,
             ),
           ]
         : [
             const _Blob(
-              color: Color(0x38BBDEFB),
-              dx: 0.15, dy: 0.2, r: 0.5,
-              speedX: 0.07, speedY: 0.05,
+              color: Color(0x38DCE8FF),
+              dx: 0.15,
+              dy: 0.2,
+              r: 0.5,
+              speedX: 0.07,
+              speedY: 0.05,
             ),
             const _Blob(
-              color: Color(0x301565C0),
-              dx: 0.75, dy: 0.55, r: 0.45,
-              speedX: -0.05, speedY: 0.08,
+              color: Color(0x30C8D7F8),
+              dx: 0.75,
+              dy: 0.55,
+              r: 0.45,
+              speedX: -0.05,
+              speedY: 0.08,
             ),
             const _Blob(
-              color: Color(0x28E3F2FD),
-              dx: 0.45, dy: 0.85, r: 0.4,
-              speedX: 0.06, speedY: -0.07,
+              color: Color(0x28F6E7F0),
+              dx: 0.45,
+              dy: 0.85,
+              r: 0.4,
+              speedX: 0.06,
+              speedY: -0.07,
             ),
             const _Blob(
-              color: Color(0x2090CAF9),
-              dx: 0.6, dy: 0.15, r: 0.38,
-              speedX: -0.08, speedY: 0.06,
+              color: Color(0x20DCE3F8),
+              dx: 0.6,
+              dy: 0.15,
+              r: 0.38,
+              speedX: -0.08,
+              speedY: 0.06,
             ),
           ];
 
@@ -263,8 +282,7 @@ class _AuroraPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_AuroraPainter old) =>
-      old.t != t || old.isDark != isDark;
+  bool shouldRepaint(_AuroraPainter old) => old.t != t || old.isDark != isDark;
 }
 
 // ─── Brand watermark ─────────────────────────────────────────────────────────

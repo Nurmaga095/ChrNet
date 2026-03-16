@@ -17,13 +17,13 @@
 #define MyAppName "ChrNet"
 #define MyAppPublisher "ChrNet"
 #define MyAppExeName "chrnet.exe"
+#define MyRuntimeExeName "xray.exe"
 
 [Setup]
 AppId={{D4855A14-C494-4CCC-87FE-E3C2A296D8D3}
 AppName={#MyAppName}
 AppVersion={#AppVersion}
 AppPublisher={#MyAppPublisher}
-AppMutex=ChrNetSingleInstanceMutex
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputDir={#OutputDir}
@@ -66,24 +66,53 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; S
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// Завершает процесс chrnet.exe (в т.ч. из трея) перед установкой
-procedure KillRunningApp;
+procedure KillProcessByName(const ProcessName: String);
 var
   ResultCode: Integer;
 begin
-  // Сначала мягко: посылаем WM_CLOSE через taskkill без /F
-  Exec('taskkill.exe', '/IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  // Ждём 1,5 сек — даём приложению сохранить состояние
+  Exec(
+    'taskkill.exe',
+    '/IM "' + ProcessName + '"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+  Exec(
+    'taskkill.exe',
+    '/F /IM "' + ProcessName + '"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+end;
+
+// Завершает ChrNet и его runtime-процессы перед установкой/удалением
+procedure KillRunningApp;
+begin
+  KillProcessByName('{#MyAppExeName}');
   Sleep(1500);
-  // Принудительно убиваем, если ещё висит (трей-иконка, зависший процесс)
-  Exec('taskkill.exe', '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  KillProcessByName('{#MyRuntimeExeName}');
   Sleep(500);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  KillRunningApp;
+  Result := True;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   KillRunningApp;
   Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  KillRunningApp;
+  Result := True;
 end;
 
 function NeedVCRedist: Boolean;

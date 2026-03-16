@@ -198,7 +198,7 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         mainHandler.removeCallbacks(permissionPollRunnable)
         val intent = Intent(ctx, XrayVpnService::class.java).apply {
             putExtra("config", config["rawUri"] as? String ?: "")
-            putExtra("ruRouting", config["ruRouting"] as? Boolean ?: false)
+            putExtra("ruRouting", config["ruRouting"] as? Boolean ?: true)
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             ctx.startForegroundService(intent)
@@ -213,7 +213,7 @@ class VpnPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         val intent = Intent(ctx, XrayVpnService::class.java).apply {
             action = XrayVpnService.ACTION_RESTART
             putExtra("config", config["rawUri"] as? String ?: "")
-            putExtra("ruRouting", config["ruRouting"] as? Boolean ?: false)
+            putExtra("ruRouting", config["ruRouting"] as? Boolean ?: true)
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             ctx.startForegroundService(intent)
