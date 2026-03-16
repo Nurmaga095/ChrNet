@@ -2,8 +2,6 @@
 
 Last updated: March 16, 2026
 
-> Replace the placeholders in square brackets before publishing.
-
 ## 1. Who we are
 
 `ChrNet VPN` is developed and published by **Nurmaga095 / ChrNet**.
@@ -143,19 +141,3 @@ For privacy requests and questions, contact:
 - Developer / Company: **Nurmaga095 / ChrNet**
 - Email: **nurmaga907@gmail.com**
 - Telegram: **[@VSupportV]**
-
----
-
-## Publishing notes for GitHub Pages
-
-Use a public GitHub Pages URL, for example:
-
-- `https://<your-username>.github.io/chrnet/privacy-policy/`
-
-Before publishing:
-
-- Replace all placeholders in brackets
-- Keep the page public and accessible without login
-- Do not publish as PDF
-- Use a stable URL and keep it active
-- Make sure the page title clearly says `Privacy Policy`
