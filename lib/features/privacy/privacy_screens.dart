@@ -58,167 +58,201 @@ class PrivacyDisclosureScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final borderRadius = BorderRadius.circular(28);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: Padding(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Padding(
               padding: const EdgeInsets.all(20),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: c.cardBackground.withValues(alpha: 0.96),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.08),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.22),
-                      blurRadius: 24,
-                      offset: const Offset(0, 12),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: SizedBox(
+                    height: constraints.maxHeight - 40,
+                    child: ClipRRect(
+                      borderRadius: borderRadius,
+                      child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: AppColors.warning.withValues(alpha: 0.16),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.privacy_tip_rounded,
-                          color: AppColors.warning,
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Перед использованием приложения',
-                        style: TextStyle(
-                          color: c.textPrimary,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'ChrNet отправляет данные на сервер подписки, который вы добавляете сами. '
-                        'Это нужно для проверки привязки подписки и защиты от передачи доступа третьим лицам.',
-                        style: TextStyle(
-                          color: c.textSecondary,
-                          fontSize: 14,
-                          height: 1.45,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      const _DisclosureBullet(
-                        title: 'Что передается серверу подписки',
-                        body:
-                            'HWID (Android ID), модель устройства, версия Android и User-Agent.',
-                      ),
-                      const _DisclosureBullet(
-                        title: 'Когда это происходит',
-                        body:
-                            'При загрузке подписки, ее обновлении и автообновлении подписок.',
-                      ),
-                      const _DisclosureBullet(
-                        title: 'Что хранится на устройстве',
-                        body:
-                            'URL подписки, импортированные VPN-конфиги, статистика подписки и настройки приложения.',
-                      ),
-                      const _DisclosureBullet(
-                        title: 'Чего приложение не делает',
-                        body:
-                            'Не отправляет ваш интернет-трафик разработчику и не использует рекламные или аналитические SDK.',
-                      ),
-                      const SizedBox(height: 18),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.04),
-                          borderRadius: BorderRadius.circular(18),
+                          color: c.cardBackground.withValues(alpha: 0.96),
+                          borderRadius: borderRadius,
                           border: Border.all(
                             color: Colors.white.withValues(alpha: 0.08),
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.22),
+                              blurRadius: 24,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
                         ),
-                        child: Text(
-                          'Продолжая, вы подтверждаете, что понимаете передачу HWID и данных устройства '
-                          'на выбранный вами сервер подписки.',
-                          style: TextStyle(
-                            color: c.textPrimary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => const PrivacyPolicyScreen(),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  padding: EdgeInsets.zero,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 48,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.warning.withValues(
+                                            alpha: 0.16,
+                                          ),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.privacy_tip_rounded,
+                                          color: AppColors.warning,
+                                          size: 24,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'Перед использованием приложения',
+                                        style: TextStyle(
+                                          color: c.textPrimary,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        'ChrNet отправляет данные на сервер подписки, который вы добавляете сами. '
+                                        'Это нужно для проверки привязки подписки и защиты от передачи доступа третьим лицам.',
+                                        style: TextStyle(
+                                          color: c.textSecondary,
+                                          fontSize: 14,
+                                          height: 1.45,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 18),
+                                      const _DisclosureBullet(
+                                        title:
+                                            'Что передается серверу подписки',
+                                        body:
+                                            'HWID (Android ID), модель устройства, версия Android и User-Agent.',
+                                      ),
+                                      const _DisclosureBullet(
+                                        title: 'Когда это происходит',
+                                        body:
+                                            'При загрузке подписки, ее обновлении и автообновлении подписок.',
+                                      ),
+                                      const _DisclosureBullet(
+                                        title: 'Что хранится на устройстве',
+                                        body:
+                                            'URL подписки, импортированные VPN-конфиги, статистика подписки и настройки приложения.',
+                                      ),
+                                      const _DisclosureBullet(
+                                        title: 'Чего приложение не делает',
+                                        body:
+                                            'Не отправляет ваш интернет-трафик разработчику и не использует рекламные или аналитические SDK.',
+                                      ),
+                                      const SizedBox(height: 18),
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.04,
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                          border: Border.all(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.08,
+                                            ),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Продолжая, вы подтверждаете, что понимаете передачу HWID и данных устройства '
+                                          'на выбранный вами сервер подписки.',
+                                          style: TextStyle(
+                                            color: c.textPrimary,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            height: 1.35,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                );
-                              },
-                              style: OutlinedButton.styleFrom(
-                                side: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.14),
                                 ),
-                                foregroundColor: c.textPrimary,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
                               ),
-                              child: const Text('Политика'),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () async {
-                                await onAccepted();
-                              },
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.accent,
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) =>
+                                                const PrivacyPolicyScreen(),
+                                          ),
+                                        );
+                                      },
+                                      style: OutlinedButton.styleFrom(
+                                        side: BorderSide(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.14,
+                                          ),
+                                        ),
+                                        foregroundColor: c.textPrimary,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 14,
+                                        ),
+                                      ),
+                                      child: const Text('Политика'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: () async {
+                                        await onAccepted();
+                                      },
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: AppColors.accent,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 14,
+                                        ),
+                                      ),
+                                      child: const Text('Продолжить'),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              child: const Text('Продолжить'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Center(
-                        child: TextButton(
-                          onPressed: () {
-                            SystemNavigator.pop();
-                          },
-                          child: Text(
-                            'Закрыть приложение',
-                            style: TextStyle(color: c.textSecondary),
+                              const SizedBox(height: 8),
+                              Center(
+                                child: TextButton(
+                                  onPressed: () {
+                                    SystemNavigator.pop();
+                                  },
+                                  child: Text(
+                                    'Закрыть приложение',
+                                    style: TextStyle(color: c.textSecondary),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
