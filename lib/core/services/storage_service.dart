@@ -7,7 +7,8 @@ class StorageService {
   static const String _serversBox = 'servers_v2';
   static const String _subsBox = 'subscriptions_v2';
   static const String _settingsBox = 'settings';
-  static const int _settingsSchemaVersion = 103;
+  static const int _settingsSchemaVersion = 104;
+  static const int defaultSubscriptionAutoUpdateHours = 6;
   static const String _privacyDisclosureVersionKey =
       'privacyDisclosureAcceptedVersion';
 
@@ -41,6 +42,17 @@ class StorageService {
 
     if (storedVersion < 103 && !_settingsB.containsKey('ruRouting')) {
       await _settingsB.put('ruRouting', true);
+    }
+
+    if (storedVersion < 104) {
+      final autoUpdateHours =
+          _settingsB.get('subscriptionAutoUpdateHours') as int?;
+      if (autoUpdateHours == null || autoUpdateHours <= 0) {
+        await _settingsB.put(
+          'subscriptionAutoUpdateHours',
+          defaultSubscriptionAutoUpdateHours,
+        );
+      }
     }
 
     if (storedVersion != _settingsSchemaVersion) {
@@ -143,13 +155,18 @@ class StorageService {
     await _settingsB.put('windowsVpnMode', mode);
   }
 
-  static int getSubscriptionAutoUpdateHours() =>
-      (_settingsB.get('subscriptionAutoUpdateHours') as int?) ?? 0;
+  static int getSubscriptionAutoUpdateHours() {
+    final hours = _settingsB.get('subscriptionAutoUpdateHours') as int?;
+    if (hours == null || hours <= 0) {
+      return defaultSubscriptionAutoUpdateHours;
+    }
+    return hours;
+  }
 
   static Future<void> setSubscriptionAutoUpdateHours(int hours) async {
     await _settingsB.put(
       'subscriptionAutoUpdateHours',
-      hours < 0 ? 0 : hours,
+      hours <= 0 ? defaultSubscriptionAutoUpdateHours : hours,
     );
   }
 

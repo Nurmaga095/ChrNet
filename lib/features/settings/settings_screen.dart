@@ -1104,6 +1104,13 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   late int _subscriptionAutoUpdateHours;
   final _subscriptionAutoUpdateController = TextEditingController();
 
+  int _normalizeSubscriptionAutoUpdateHours(int? hours) {
+    if (hours == null || hours <= 0) {
+      return StorageService.defaultSubscriptionAutoUpdateHours;
+    }
+    return hours;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1122,38 +1129,38 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
     _windowsVpnMode = StorageService.getWindowsVpnMode();
     _subscriptionAutoUpdateHours =
         StorageService.getSubscriptionAutoUpdateHours();
-    _subscriptionAutoUpdateController.text = _subscriptionAutoUpdateHours > 0
-        ? _subscriptionAutoUpdateHours.toString()
-        : '';
+    _subscriptionAutoUpdateController.text =
+        _subscriptionAutoUpdateHours.toString();
   }
 
-  String get _subscriptionAutoUpdateLabel => _subscriptionAutoUpdateHours == 0
-      ? 'Выкл'
-      : '$_subscriptionAutoUpdateHours ч';
+  String get _subscriptionAutoUpdateLabel => '$_subscriptionAutoUpdateHours ч';
 
   Future<void> _setSubscriptionAutoUpdateHours(int hours) async {
-    await StorageService.setSubscriptionAutoUpdateHours(hours);
+    final normalizedHours = _normalizeSubscriptionAutoUpdateHours(hours);
+    await StorageService.setSubscriptionAutoUpdateHours(normalizedHours);
     if (!mounted) {
       return;
     }
     setState(() {
-      _subscriptionAutoUpdateHours = hours;
-      _subscriptionAutoUpdateController.text =
-          hours > 0 ? hours.toString() : '';
+      _subscriptionAutoUpdateHours = normalizedHours;
+      _subscriptionAutoUpdateController.text = normalizedHours.toString();
     });
   }
 
   Future<void> _saveSubscriptionAutoUpdateHours() async {
     final text = _subscriptionAutoUpdateController.text.trim();
-    final hours = text.isEmpty ? 0 : int.tryParse(text);
+    final hours = text.isEmpty
+        ? StorageService.defaultSubscriptionAutoUpdateHours
+        : int.tryParse(text);
     if (hours == null) {
       return;
     }
-    if (hours == _subscriptionAutoUpdateHours) {
-      _subscriptionAutoUpdateController.text = hours > 0 ? '$hours' : '';
+    final normalizedHours = _normalizeSubscriptionAutoUpdateHours(hours);
+    if (normalizedHours == _subscriptionAutoUpdateHours) {
+      _subscriptionAutoUpdateController.text = '$normalizedHours';
       return;
     }
-    await _setSubscriptionAutoUpdateHours(hours);
+    await _setSubscriptionAutoUpdateHours(normalizedHours);
   }
 
   @override
@@ -1367,13 +1374,13 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
       return Wrap(
         spacing: spacing,
         runSpacing: runSpacing,
-        children: [0, 6, 12, 24].map((hours) {
+        children: [6, 12, 24].map((hours) {
           final isSelected = _subscriptionAutoUpdateHours == hours;
           return SizedBox(
             height: 34,
             child: ActionChip(
               label: Text(
-                hours == 0 ? 'Выкл' : '$hours ч',
+                '$hours ч',
                 style: TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w700,
@@ -1397,11 +1404,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
 
     Widget buildAutoUpdateEditor({required bool desktopPanel}) {
       final controlGroup = Container(
-        width: desktopPanel
-            ? 196
-            : isTablet
-                ? 164
-                : 148,
+        width: double.infinity,
         height: controlHeight,
         decoration: BoxDecoration(
           color: accentSurfaceSoft,
@@ -1431,7 +1434,8 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                   decoration: InputDecoration(
                     isCollapsed: true,
                     border: InputBorder.none,
-                    hintText: '0',
+                    hintText:
+                        '${StorageService.defaultSubscriptionAutoUpdateHours}',
                     hintStyle: TextStyle(
                       color: c.textDisabled,
                       fontSize: 15,
@@ -1470,14 +1474,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
       );
 
       if (!desktopPanel) {
-        return Wrap(
-          spacing: 8,
-          runSpacing: 10,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            controlGroup,
-          ],
-        );
+        return controlGroup;
       }
 
       return Container(
@@ -1500,7 +1497,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Укажите частоту обновления подписок.',
+              'Автообновление всегда включено. По умолчанию каждые 6 часов.',
               style: TextStyle(
                 color: c.textSecondary,
                 fontSize: 11.8,
@@ -1511,7 +1508,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
             controlGroup,
             const SizedBox(height: 8),
             Text(
-              '0 отключает автообновление.',
+              'Минимум 1 час. Пустое значение сбрасывается на 6 часов.',
               style: TextStyle(
                 color: c.textDisabled,
                 fontSize: 11.5,
@@ -1531,7 +1528,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
           buildSectionHeader(
             icon: Icons.autorenew_rounded,
             title: 'Автообновление',
-            subtitle: 'Интервал обновления в часах.',
+            subtitle: 'Автообновление всегда включено, интервал в часах.',
             accent: AppColors.accent,
             trailing: buildInfoPill(
               _subscriptionAutoUpdateLabel,
@@ -1605,7 +1602,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                 ),
                 const SizedBox(width: 18),
                 SizedBox(
-                  width: 232,
+                  width: 268,
                   child: buildAutoUpdateEditor(desktopPanel: true),
                 ),
               ],
@@ -1616,7 +1613,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
             buildPresetChips(),
             const SizedBox(height: 12),
             Text(
-              '0 отключает автообновление. Проверка идёт при запуске и пока приложение открыто.',
+              'Автообновление всегда включено. По умолчанию интервал 6 часов. Проверка идёт при запуске и пока приложение открыто.',
               style: TextStyle(
                 color: c.textSecondary,
                 fontSize: 11.5,
