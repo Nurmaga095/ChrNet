@@ -1098,7 +1098,6 @@ class _ConnectionSettingsScreen extends StatefulWidget {
 }
 
 class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
-  late bool _autoStart;
   late bool _bypassLan;
   late bool _ruRouting;
   late String _windowsVpnMode;
@@ -1118,7 +1117,6 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   }
 
   void _reload() {
-    _autoStart = StorageService.getAutoStart();
     _bypassLan = StorageService.getBypassLan();
     _ruRouting = StorageService.getRuRouting();
     _windowsVpnMode = StorageService.getWindowsVpnMode();
@@ -1660,12 +1658,6 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                   icon: Icons.public_rounded,
                   compact: true,
                 ),
-                buildInfoPill(
-                  _autoStart ? 'Автозапуск: вкл' : 'Автозапуск: выкл',
-                  AppColors.warning,
-                  icon: Icons.power_settings_new_rounded,
-                  compact: true,
-                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -1697,20 +1689,6 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
               }
             },
           ),
-          if (isDesktopSettings) ...[
-            const SizedBox(height: 8),
-            _SheetSwitch(
-              icon: Icons.power_settings_new_rounded,
-              accentColor: AppColors.warning,
-              title: 'Автозапуск',
-              subtitle: 'Подключение после включения',
-              value: _autoStart,
-              onChanged: (v) async {
-                await StorageService.setAutoStart(v);
-                setState(() => _autoStart = v);
-              },
-            ),
-          ],
         ],
       ),
     );

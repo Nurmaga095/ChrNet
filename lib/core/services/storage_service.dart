@@ -124,12 +124,6 @@ class StorageService {
     await _settingsB.put('selectedServerId', id);
   }
 
-  static bool getAutoStart() => (_settingsB.get('autoStart') as bool?) ?? false;
-
-  static Future<void> setAutoStart(bool value) async {
-    await _settingsB.put('autoStart', value);
-  }
-
   static bool getBypassLan() => (_settingsB.get('bypassLan') as bool?) ?? true;
 
   static Future<void> setBypassLan(bool value) async {
