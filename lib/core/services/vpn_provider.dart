@@ -232,14 +232,15 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   String _buildSelectedServerConfig() {
     final mode = StorageService.getWindowsVpnMode();
+    final ruRouting = StorageService.getRuRouting();
     final isWindows =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     if (isWindows && mode == 'tunnel') {
       return XrayConfigBuilder.buildTunnelConfig(_selectedServer!,
-          statsApi: true);
+          statsApi: true, enableRuRouting: ruRouting);
     }
     return XrayConfigBuilder.buildSystemProxyConfig(_selectedServer!,
-        statsApi: isWindows);
+        statsApi: isWindows, enableRuRouting: ruRouting);
   }
 
   void _startConnectingPoll() {

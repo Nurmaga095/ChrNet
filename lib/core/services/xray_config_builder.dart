@@ -6,15 +6,20 @@ import 'storage_service.dart';
 class XrayConfigBuilder {
   const XrayConfigBuilder._();
   static const List<String> _fallbackDnsServers = ['1.1.1.1', '8.8.8.8'];
+  static const List<String> _ruDirectDomainRules = [
+    r'regexp:(^|.*\.)ru$',
+    r'regexp:(^|.*\.)su$',
+    r'regexp:(^|.*\.)xn--p1ai$',
+  ];
+  static const List<String> _ruDirectIpRules = ['geoip:ru'];
 
   static String buildProxyConfig(ServerConfig server) {
     return buildSystemProxyConfig(server);
   }
 
   static String buildSystemProxyConfig(ServerConfig server,
-      {bool statsApi = false}) {
+      {bool statsApi = false, bool enableRuRouting = true}) {
     final outbound = _buildOutbound(server);
-    final ruRouting = StorageService.getRuRouting();
     final dnsServers = _resolveDnsServers(server);
     final inbounds = <Map<String, dynamic>>[
       <String, dynamic>{
@@ -49,7 +54,7 @@ class XrayConfigBuilder {
           '192.168.0.0/16',
         ],
       },
-      if (ruRouting) ..._russiaDirectRules(),
+      if (enableRuRouting) ..._buildRuDirectRoutingRules(),
     ];
     final config = <String, dynamic>{
       'log': <String, dynamic>{'loglevel': 'warning'},
@@ -84,9 +89,8 @@ class XrayConfigBuilder {
   }
 
   static String buildTunnelConfig(ServerConfig server,
-      {bool statsApi = false}) {
+      {bool statsApi = false, bool enableRuRouting = true}) {
     final outbound = _buildOutbound(server);
-    final ruRouting = StorageService.getRuRouting();
     final dnsServers = _resolveDnsServers(server);
     final isIp =
         RegExp(r'^[\d.]+$').hasMatch(server.host) || server.host.contains(':');
@@ -107,12 +111,6 @@ class XrayConfigBuilder {
             'address': <String>['10.0.0.1/24'],
             'autoRoute': true,
             'strictRoute': false,
-          },
-          // Sniffing is only needed when ruRouting is on (domain-based rules).
-          // Disabling it reduces per-connection overhead in tunnel mode.
-          'sniffing': <String, dynamic>{
-            'enabled': ruRouting,
-            'destOverride': <String>['http', 'tls'],
           },
         },
         if (statsApi) _statsApiInbound(),
@@ -147,8 +145,8 @@ class XrayConfigBuilder {
             ],
             'outboundTag': 'direct',
           },
-          // Russian traffic goes direct when preset is enabled
-          if (ruRouting) ..._russiaDirectRules(),
+          if (enableRuRouting)
+            ..._buildRuDirectRoutingRules(inboundTag: 'tun-in'),
           // All other traffic through proxy
           <String, dynamic>{
             'type': 'field',
@@ -306,17 +304,21 @@ class XrayConfigBuilder {
         'outboundTag': 'api',
       };
 
-  static List<Map<String, dynamic>> _russiaDirectRules() {
-    return <Map<String, dynamic>>[
+  static List<Map<String, dynamic>> _buildRuDirectRoutingRules({
+    String? inboundTag,
+  }) {
+    return [
       <String, dynamic>{
         'type': 'field',
+        if (inboundTag != null) 'inboundTag': <String>[inboundTag],
+        'domain': _ruDirectDomainRules,
         'outboundTag': 'direct',
-        'domain': <String>['geosite:category-ru'],
       },
       <String, dynamic>{
         'type': 'field',
+        if (inboundTag != null) 'inboundTag': <String>[inboundTag],
+        'ip': _ruDirectIpRules,
         'outboundTag': 'direct',
-        'ip': <String>['geoip:ru'],
       },
     ];
   }

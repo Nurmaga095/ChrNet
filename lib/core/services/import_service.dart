@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:developer' as dev;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../models/server_config.dart';
@@ -57,11 +56,7 @@ class ImportService {
           error: 'Буфер обмена пуст',
         );
       }
-      // Если это ссылка на подписку — скачиваем
-      if (text.startsWith('http://') || text.startsWith('https://')) {
-        return importFromSubscriptionUrl(text);
-      }
-      return _parseUris(text);
+      return importFromText(text);
     } catch (e) {
       return ImportResponse(
         result: ImportResult.error,
@@ -80,13 +75,47 @@ class ImportService {
         error: 'Пустая строка',
       );
     }
-    return _parseUris(uri.trim());
+    return _parseUris(_normalizeImportText(uri));
+  }
+
+  /// Импорт из произвольного текста: URI, URL подписки или deep link.
+  static Future<ImportResponse> importFromText(String text) async {
+    final normalized = _normalizeImportText(text);
+    if (normalized.isEmpty) {
+      return const ImportResponse(
+        result: ImportResult.noConfig,
+        configs: [],
+        error: 'Пустая строка',
+      );
+    }
+
+    if (_isInsecureSubscriptionUrl(normalized)) {
+      return const ImportResponse(
+        result: ImportResult.error,
+        configs: [],
+        error: 'Для подписок поддерживаются только HTTPS-ссылки.',
+      );
+    }
+
+    final subscriptionUrl = _extractSubscriptionUrl(normalized);
+    if (subscriptionUrl != null) {
+      return importFromSubscriptionUrl(subscriptionUrl);
+    }
+
+    return _parseUris(normalized);
   }
 
   /// Импорт по ссылке подписки
   static Future<ImportResponse> importFromSubscriptionUrl(String url) async {
     try {
       final uri = Uri.parse(url);
+      if (!_isSecureSubscriptionUri(uri)) {
+        return const ImportResponse(
+          result: ImportResult.error,
+          configs: [],
+          error: 'Для подписок поддерживаются только HTTPS-ссылки.',
+        );
+      }
       final device = await DeviceService.getDeviceInfo();
       final response = await http.get(
         uri,
@@ -124,11 +153,6 @@ class ImportService {
           error: 'Конфиги не найдены в ответе',
         );
       }
-
-      // DEBUG: вывод всех заголовков ответа подписки
-      dev.log('=== SUBSCRIPTION HEADERS ===', name: 'ImportService');
-      response.headers.forEach((k, v) => dev.log('  $k: $v', name: 'ImportService'));
-      dev.log('============================', name: 'ImportService');
 
       final dnsServers = _extractDnsServers(response.headers, body);
 
@@ -321,9 +345,74 @@ class ImportService {
 
   /// Проверяет, является ли текст поддерживаемым URI
   static bool isValidVpnUri(String text) {
-    return text.startsWith('vless://') ||
-        text.startsWith('vmess://') ||
-        text.startsWith('trojan://') ||
-        text.startsWith('ss://');
+    final normalized = _normalizeImportText(text);
+    return normalized.startsWith('vless://') ||
+        normalized.startsWith('vmess://') ||
+        normalized.startsWith('trojan://') ||
+        normalized.startsWith('ss://');
+  }
+
+  /// Проверяет, можно ли импортировать текст из QR/буфера.
+  static bool canImportText(String text) {
+    final normalized = _normalizeImportText(text);
+    return normalized.isNotEmpty &&
+        (_extractSubscriptionUrl(normalized) != null ||
+            isValidVpnUri(normalized));
+  }
+
+  static String _normalizeImportText(String text) {
+    final trimmed = text.replaceAll('\uFEFF', '').trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    final deepLinkUrl = _extractDeepLinkUrl(trimmed);
+    if (deepLinkUrl != null) {
+      return deepLinkUrl;
+    }
+
+    final mebkmMatch = RegExp(
+      r'^MEBKM:(?:TITLE:[^;]*;)?URL:([^;]+)',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (mebkmMatch != null) {
+      return mebkmMatch.group(1)?.trim() ?? trimmed;
+    }
+
+    final urlToMatch = RegExp(
+      r'^URLTO:(?:[^:]*:)?(.+)$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (urlToMatch != null) {
+      return urlToMatch.group(1)?.trim() ?? trimmed;
+    }
+
+    return trimmed;
+  }
+
+  static String? _extractSubscriptionUrl(String text) {
+    if (text.startsWith('https://')) {
+      return text;
+    }
+    return null;
+  }
+
+  static bool _isInsecureSubscriptionUrl(String text) {
+    return text.startsWith('http://');
+  }
+
+  static bool _isSecureSubscriptionUri(Uri uri) {
+    return uri.scheme.toLowerCase() == 'https';
+  }
+
+  static String? _extractDeepLinkUrl(String raw) {
+    const scheme = 'chrnet://add/';
+    if (raw.toLowerCase().startsWith(scheme)) {
+      final payload = raw.substring(scheme.length).trim();
+      if (payload.isNotEmpty) {
+        return Uri.decodeFull(payload).trim();
+      }
+    }
+    return null;
   }
 }

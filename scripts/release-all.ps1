@@ -47,6 +47,59 @@ function Remove-ReleaseAssetIfExists {
     }
 }
 
+function Ensure-ReleaseTagExists {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Tag
+    )
+
+    $localTag = git tag --list $Tag
+    if (-not $localTag) {
+        $headCommit = git rev-parse HEAD
+        if ($LASTEXITCODE -ne 0 -or -not $headCommit) {
+            throw "Failed to resolve HEAD commit for tag creation"
+        }
+
+        Write-Host "==> Creating local git tag $Tag at $headCommit"
+        git tag -a $Tag $headCommit -m "Release $Tag"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create local git tag: $Tag"
+        }
+    }
+
+    $remoteTag = git ls-remote --tags origin "refs/tags/$Tag"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to query remote tags for $Tag"
+    }
+
+    if (-not $remoteTag) {
+        Write-Host "==> Pushing git tag $Tag to origin"
+        git push origin "refs/tags/$Tag"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to push git tag: $Tag"
+        }
+    }
+}
+
+function Ensure-ReleaseExists {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Tag
+    )
+
+    Write-Host "==> Checking release $Tag"
+    gh release view $Tag --repo $repo | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    Write-Host "==> Release $Tag not found, creating it"
+    gh release create $Tag --repo $repo --verify-tag --title $Tag --notes "Release $Tag"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create GitHub release: $Tag"
+    }
+}
+
 Assert-CommandExists "flutter"
 Assert-CommandExists "gh"
 
@@ -65,11 +118,8 @@ try {
         throw "GitHub CLI is not authenticated"
     }
 
-    Write-Host "==> Checking release $tag"
-    gh release view $tag --repo $repo | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "GitHub release not found: $tag"
-    }
+    Ensure-ReleaseTagExists -Tag $tag
+    Ensure-ReleaseExists -Tag $tag
 
     Write-Host "==> Building Windows installer"
     powershell -ExecutionPolicy Bypass -File $installerScript

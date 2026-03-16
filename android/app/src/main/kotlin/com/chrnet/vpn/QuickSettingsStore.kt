@@ -23,7 +23,7 @@ object QuickSettingsStore {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_RAW_URI, rawUri)
-            .putBoolean(KEY_RU_ROUTING, config["ruRouting"] as? Boolean ?: false)
+            .putBoolean(KEY_RU_ROUTING, config["ruRouting"] as? Boolean ?: true)
             .apply()
 
         requestTileRefresh(context)
@@ -45,7 +45,7 @@ object QuickSettingsStore {
 
         return StoredVpnConfig(
             rawUri = rawUri,
-            ruRouting = prefs.getBoolean(KEY_RU_ROUTING, false),
+            ruRouting = prefs.getBoolean(KEY_RU_ROUTING, true),
         )
     }
 

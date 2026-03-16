@@ -15,6 +15,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/subscription_service.dart';
 import '../../core/services/vpn_provider.dart';
 import '../../ui/theme/app_theme.dart';
+import '../../ui/widgets/liquid_bottom_bar.dart';
 import '../../ui/widgets/power_button.dart';
 import '../../ui/widgets/stats_card.dart';
 import '../servers/add_server_sheet.dart' show QrScanScreen;
@@ -178,6 +179,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? 0.78
                 : _heroScale;
         final contentMaxWidth = isWideTablet ? 1180.0 : 760.0;
+        final showSubscriptionSiteButton =
+            kIsWeb || defaultTargetPlatform != TargetPlatform.android;
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: Stack(
@@ -206,7 +209,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ), // ListView
               // ── Floating action buttons (top-right) ──────────────────────
               Positioned(
-                top: 0,
+                top: !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+                    ? 10
+                    : 0,
                 right: 14,
                 child: SafeArea(
                   bottom: false,
@@ -246,7 +251,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     builder: (_) => QrScanScreen(
                                       onScanned: (uri) async {
                                         final result =
-                                            await ImportService.importFromUri(
+                                            await ImportService.importFromText(
                                                 uri);
                                         _handleImportResult(messenger, result);
                                       },
@@ -289,25 +294,29 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        GestureDetector(
-                          onTap: _openSubscriptionSite,
-                          child: const _AppBarButton(
-                            icon: Icons.manage_accounts_rounded,
-                            iconSize: 18,
+                        if (showSubscriptionSiteButton) ...[
+                          const SizedBox(height: 8),
+                          GestureDetector(
+                            onTap: _openSubscriptionSite,
+                            child: const _AppBarButton(
+                              icon: Icons.manage_accounts_rounded,
+                              iconSize: 18,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        GestureDetector(
-                          onTap: _openSettings,
-                          child: const _AppBarButton(
-                            icon: Icons.settings_rounded,
-                            iconSize: 18,
-                          ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: LiquidBottomBar(
+                  activeTab: LiquidBottomBarTab.connection,
+                  onConnectionTap: () {},
+                  onSettingsTap: _openSettings,
                 ),
               ),
             ],
@@ -325,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     final spacing = 10 * scale;
     return ListView(
-      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 32),
+      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 72),
       children: [
         SizedBox(height: scale * (isMobileTopInsetPlatform ? 30 : 16)),
         _buildHeroSection(context, vpn, scale: scale),
@@ -351,7 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
         28,
         scale * (isMobileTopInsetPlatform ? 20 : 12),
         28,
-        32,
+        80,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -479,20 +488,53 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildImportButton(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 48,
-      child: OutlinedButton.icon(
-        onPressed: () async {
-          final messenger = ScaffoldMessenger.of(context);
-          final result = await ImportService.importFromClipboard();
-          _handleImportResult(messenger, result);
-        },
-        icon: const Icon(Icons.content_paste_rounded, size: 18),
-        label: const Text('Из буфера'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.accent,
-          side: const BorderSide(color: AppColors.accent),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+      height: 46,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.accent.withValues(alpha: 0.12),
+              AppColors.accent.withValues(alpha: 0.04),
+            ],
+          ),
+          border: Border.all(
+            color: AppColors.accent.withValues(alpha: 0.82),
+            width: 1.15,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final result = await ImportService.importFromClipboard();
+              _handleImportResult(messenger, result);
+            },
+            child: const Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.content_paste_rounded,
+                    size: 18,
+                    color: AppColors.accent,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Из буфера',
+                    style: TextStyle(
+                      color: AppColors.accent,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -665,11 +707,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_servers.isEmpty) {
       return [
         GlassCard(
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: _buildEmpty(context),
-          ),
+          borderRadius: BorderRadius.circular(22),
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+          child: _buildEmpty(context),
         ),
       ];
     }
@@ -761,11 +801,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (sections.isEmpty) {
       sections.add(
         GlassCard(
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: _buildEmpty(context),
-          ),
+          borderRadius: BorderRadius.circular(22),
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+          child: _buildEmpty(context),
         ),
       );
     }
@@ -852,52 +890,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildEmpty(BuildContext context) {
     final c = AppColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Column(
-        children: [
-          Icon(Icons.public_outlined, size: 48, color: c.textDisabled),
-          const SizedBox(height: 12),
-          Text(
-            'Нет конфигураций',
-            style: TextStyle(color: c.textSecondary, fontSize: 15),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Нажмите + чтобы добавить VPN-сервер',
-            style: TextStyle(color: c.textDisabled, fontSize: 12),
-          ),
-          const SizedBox(height: 14),
-          OutlinedButton.icon(
-            onPressed: _openSubscriptionSite,
-            icon: const Icon(Icons.shopping_cart_outlined, size: 18),
-            label: const Text(
-              'Купить подписку',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.accent,
-              side: const BorderSide(color: AppColors.accent),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.public_outlined, size: 44, color: c.textDisabled),
+            const SizedBox(height: 10),
+            Text(
+              'Нет конфигураций',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: c.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            Text(
+              'Нажмите + чтобы добавить VPN-сервер',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: c.textSecondary,
+                fontSize: 12.5,
+                height: 1.25,
+              ),
+            ),
+          ],
+        ),
       ),
     );
-  }
-
-  Future<void> _openSubscriptionSite() async {
-    final uri = Uri.parse('https://miniapp.chrnet.ru');
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      _showSnack(
-        ScaffoldMessenger.of(context),
-        'Не удалось открыть сайт',
-      );
-    }
   }
 
   Future<void> _handleImportResult(
@@ -1276,6 +1299,17 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Future<void> _openSubscriptionSite() async {
+    final uri = Uri.parse('https://miniapp.chrnet.ru');
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      _showSnack(
+        ScaffoldMessenger.of(context),
+        'Не удалось открыть сайт',
+      );
+    }
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1353,6 +1387,10 @@ class _SubCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final refreshColor = isDark ? AppColors.accent : const Color(0xFF6E82A0);
+    final pingActionColor =
+        isDark ? AppColors.connected : const Color(0xFF7D8FAA);
     final used = subscription.usedBytes;
     final total = subscription.totalBytes;
     final ratio =
@@ -1389,10 +1427,13 @@ class _SubCard extends StatelessWidget {
                 child: InkWell(
                   onTap: isRefreshing ? null : onRefresh,
                   borderRadius: BorderRadius.circular(20),
-                  child: const Padding(
-                    padding: EdgeInsets.all(4),
-                    child: Icon(Icons.refresh_rounded,
-                        size: 29, color: AppColors.accent),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.refresh_rounded,
+                      size: 29,
+                      color: refreshColor,
+                    ),
                   ),
                 ),
               ),
@@ -1402,10 +1443,13 @@ class _SubCard extends StatelessWidget {
                 child: InkWell(
                   onTap: isCheckingPing ? null : onCheckPing,
                   borderRadius: BorderRadius.circular(20),
-                  child: const Padding(
-                    padding: EdgeInsets.all(4),
-                    child: Icon(Icons.bolt_rounded,
-                        size: 27, color: AppColors.connected),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.bolt_rounded,
+                      size: 27,
+                      color: pingActionColor,
+                    ),
                   ),
                 ),
               ),
@@ -1570,7 +1614,16 @@ class _ServerRow extends StatelessWidget {
     return server.displayName;
   }
 
-  String get _subtitle => server.protocolUpper;
+  bool get _isUnnamedKey {
+    final rawName = server.name.trim();
+    if (rawName.isEmpty) return true;
+    return rawName == '${server.host}:${server.port}';
+  }
+
+  String get _title => _isUnnamedKey ? 'Ключ ${server.protocolUpper}' : _name;
+
+  String get _subtitle =>
+      _isUnnamedKey ? '${server.host}:${server.port}' : server.protocolUpper;
   String get _pingText => pingMs == null ? '--' : '$pingMs ms';
 
   Color _pingColor(Color fallback) {
@@ -1583,9 +1636,15 @@ class _ServerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final flag = _emojiFlag;
     final flagCode = _flagCode;
-    final name = _name;
+    final title = _title;
+    final selectedTitleColor =
+        isDark ? AppColors.accent : const Color(0xFF213145);
+    final selectedSecondaryColor = isDark
+        ? AppColors.accentGlow.withValues(alpha: 0.75)
+        : const Color(0xFF6B7C95);
 
     return GestureDetector(
       onTap: onTap,
@@ -1593,10 +1652,31 @@ class _ServerRow extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
+          gradient: isSelected && !isDark
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white.withValues(alpha: 0.72),
+                    const Color(0xFFDDE7F1).withValues(alpha: 0.9),
+                  ],
+                )
+              : null,
           color: isSelected
-              ? AppColors.accent.withValues(alpha: 0.13)
+              ? isDark
+                  ? AppColors.accent.withValues(alpha: 0.13)
+                  : null
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          border: isSelected && !isDark
+              ? Border.symmetric(
+                  horizontal: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.44),
+                    width: 0.8,
+                  ),
+                )
+              : null,
+          borderRadius:
+              isSelected ? BorderRadius.zero : BorderRadius.circular(12),
         ),
         child: Row(
           children: [
@@ -1621,10 +1701,14 @@ class _ServerRow extends StatelessWidget {
                             height: 1.0,
                           ),
                         )
-                      : Icon(Icons.public_rounded,
+                      : Icon(
+                          _isUnnamedKey
+                              ? Icons.vpn_key_rounded
+                              : Icons.public_rounded,
                           size: 24,
-                          color:
-                              isSelected ? AppColors.accent : c.textSecondary),
+                          color: isSelected
+                              ? selectedTitleColor
+                              : c.textSecondary),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -1632,9 +1716,9 @@ class _ServerRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    name.isNotEmpty ? name : server.displayName,
+                    title.isNotEmpty ? title : server.displayName,
                     style: TextStyle(
-                      color: isSelected ? AppColors.accent : c.textPrimary,
+                      color: isSelected ? selectedTitleColor : c.textPrimary,
                       fontSize: 14.5,
                       fontWeight: FontWeight.w500,
                     ),
@@ -1643,9 +1727,8 @@ class _ServerRow extends StatelessWidget {
                   Text(
                     _subtitle,
                     style: TextStyle(
-                      color: isSelected
-                          ? AppColors.accentGlow.withValues(alpha: 0.7)
-                          : c.textSecondary,
+                      color:
+                          isSelected ? selectedSecondaryColor : c.textSecondary,
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
                     ),
@@ -1657,7 +1740,7 @@ class _ServerRow extends StatelessWidget {
               _pingText,
               style: TextStyle(
                 color: isSelected
-                    ? AppColors.accentGlow.withValues(alpha: 0.8)
+                    ? selectedSecondaryColor
                     : _pingColor(c.textSecondary),
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
@@ -1744,13 +1827,13 @@ class _AppBarButtonState extends State<_AppBarButton> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final borderColor = isDark
         ? Colors.white.withValues(alpha: _isHovered ? 0.28 : 0.16)
-        : Colors.white.withValues(alpha: _isHovered ? 0.72 : 0.55);
+        : const Color(0xFFD7E0EA).withValues(alpha: _isHovered ? 0.96 : 0.78);
     final fillColor = isDark
         ? Colors.white.withValues(alpha: _isHovered ? 0.14 : 0.09)
-        : Colors.white.withValues(alpha: _isHovered ? 0.62 : 0.48);
+        : Colors.white.withValues(alpha: _isHovered ? 0.44 : 0.28);
     final iconColor = isDark
         ? Colors.white.withValues(alpha: _isHovered ? 1 : 0.88)
-        : AppColors.accentDim.withValues(alpha: _isHovered ? 1 : 0.88);
+        : const Color(0xFF5F6F85).withValues(alpha: _isHovered ? 1 : 0.92);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,

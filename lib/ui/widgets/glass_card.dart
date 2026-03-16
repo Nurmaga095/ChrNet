@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 
 /// A frosted-glass container — iOS 26 Liquid Glass style.
@@ -25,44 +26,66 @@ class GlassCard extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colors = AppColors.of(context);
     final br = borderRadius ?? BorderRadius.circular(20);
-    return ClipRRect(
-      borderRadius: br,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: br,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDark
-                  ? [
-                      Colors.white.withValues(alpha: 0.09),
-                      Colors.white.withValues(alpha: 0.04),
-                    ]
-                  : [
-                      colors.cardBackground.withValues(alpha: 0.92),
-                      colors.surfaceColor.withValues(alpha: 0.82),
-                    ],
+    final baseSurface = isDark
+        ? colors.cardBackground.withValues(alpha: 0.88)
+        : Colors.white.withValues(alpha: 0.92);
+
+    return RepaintBoundary(
+      child: ClipRRect(
+        borderRadius: br,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: ColoredBox(color: baseSurface),
             ),
-            boxShadow: isDark
-                ? null
-                : [
-                    BoxShadow(
-                      color: colors.borderColor.withValues(alpha: 0.28),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.14)
-                  : colors.borderColor.withValues(alpha: 0.95),
-              width: isDark ? 0.5 : 0.9,
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                child: const SizedBox.expand(),
+              ),
             ),
-          ),
-          padding: padding,
-          child: child,
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: br,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isDark
+                      ? [
+                          Colors.white.withValues(alpha: 0.09),
+                          Colors.white.withValues(alpha: 0.04),
+                        ]
+                      : [
+                          Colors.white.withValues(alpha: 0.78),
+                          const Color(0xFFE8EEF6).withValues(alpha: 0.7),
+                        ],
+                ),
+                boxShadow: isDark
+                    ? null
+                    : [
+                        BoxShadow(
+                          color:
+                              const Color(0xFF9CA9BC).withValues(alpha: 0.18),
+                          blurRadius: 28,
+                          offset: const Offset(0, 14),
+                        ),
+                        BoxShadow(
+                          color: Colors.white.withValues(alpha: 0.42),
+                          blurRadius: 16,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.14)
+                      : const Color(0xFFD9E2ED).withValues(alpha: 0.92),
+                  width: isDark ? 0.5 : 0.9,
+                ),
+              ),
+              padding: padding,
+              child: child,
+            ),
+          ],
         ),
       ),
     );

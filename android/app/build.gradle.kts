@@ -45,6 +45,19 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            excludes += setOf(
+                "**/x86/*.so",
+                "**/x86_64/*.so",
+            )
+        }
     }
 
     buildTypes {
@@ -62,6 +75,6 @@ flutter {
 }
 
 dependencies {
-    // Xray-core для Android — локальный .aar из GitHub Releases
-    implementation(files("libs/libv2ray.aar"))
+    // RU direct-routing requires bundled geo datasets on Android.
+    implementation(files("libs/libv2ray.with-geo.aar"))
 }

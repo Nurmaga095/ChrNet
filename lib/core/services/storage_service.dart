@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/server_config.dart';
 import '../models/subscription.dart';
@@ -8,7 +7,9 @@ class StorageService {
   static const String _serversBox = 'servers_v2';
   static const String _subsBox = 'subscriptions_v2';
   static const String _settingsBox = 'settings';
-  static const int _settingsSchemaVersion = 101;
+  static const int _settingsSchemaVersion = 103;
+  static const String _privacyDisclosureVersionKey =
+      'privacyDisclosureAcceptedVersion';
 
   static late Box<String> _serversB;
   static late Box<String> _subsB;
@@ -32,6 +33,14 @@ class StorageService {
         await _settingsB.put('windowsVpnMode', 'tunnel');
       }
       await _settingsB.delete('dns');
+    }
+
+    if (storedVersion < 102) {
+      await _settingsB.delete('ruRouting');
+    }
+
+    if (storedVersion < 103 && !_settingsB.containsKey('ruRouting')) {
+      await _settingsB.put('ruRouting', true);
     }
 
     if (storedVersion != _settingsSchemaVersion) {
@@ -127,7 +136,7 @@ class StorageService {
     await _settingsB.put('bypassLan', value);
   }
 
-  static bool getRuRouting() => (_settingsB.get('ruRouting') as bool?) ?? false;
+  static bool getRuRouting() => (_settingsB.get('ruRouting') as bool?) ?? true;
 
   static Future<void> setRuRouting(bool value) async {
     await _settingsB.put('ruRouting', value);
@@ -150,24 +159,12 @@ class StorageService {
     );
   }
 
-  static ThemeMode getThemeMode() {
-    final val = _settingsB.get('themeMode') as String?;
-    switch (val) {
-      case 'light':
-        return ThemeMode.light;
-      case 'dark':
-        return ThemeMode.dark;
-      default:
-        return ThemeMode.system;
-    }
-  }
+  static String? getPrivacyDisclosureAcceptedVersion() =>
+      _settingsB.get(_privacyDisclosureVersionKey) as String?;
 
-  static Future<void> setThemeMode(ThemeMode mode) async {
-    final val = mode == ThemeMode.light
-        ? 'light'
-        : mode == ThemeMode.dark
-            ? 'dark'
-            : 'system';
-    await _settingsB.put('themeMode', val);
+  static Future<void> setPrivacyDisclosureAcceptedVersion(
+    String version,
+  ) async {
+    await _settingsB.put(_privacyDisclosureVersionKey, version);
   }
 }
