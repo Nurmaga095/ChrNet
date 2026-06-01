@@ -1101,6 +1101,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   late bool _bypassLan;
   late bool _ruRouting;
   late String _windowsVpnMode;
+  late String _pingMethod;
   late int _subscriptionAutoUpdateHours;
   final _subscriptionAutoUpdateController = TextEditingController();
   OverlayEntry? _topNoticeEntry;
@@ -1224,6 +1225,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
     _bypassLan = StorageService.getBypassLan();
     _ruRouting = StorageService.getRuRouting();
     _windowsVpnMode = StorageService.getWindowsVpnMode();
+    _pingMethod = StorageService.getPingMethod();
     _subscriptionAutoUpdateHours =
         StorageService.getSubscriptionAutoUpdateHours();
     _subscriptionAutoUpdateController.text =
@@ -1231,6 +1233,9 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   }
 
   String get _subscriptionAutoUpdateLabel => '$_subscriptionAutoUpdateHours ч';
+
+  String get _pingMethodLabel =>
+      _pingMethod == StorageService.pingMethodIcmp ? 'ICMP' : 'TCP';
 
   Future<void> _setSubscriptionAutoUpdateHours(int hours) async {
     final normalizedHours = _normalizeSubscriptionAutoUpdateHours(hours);
@@ -1870,6 +1875,82 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
       ),
     );
 
+    final pingCard = GlassCard(
+      borderRadius: BorderRadius.circular(isDesktopSettings ? 28 : 24),
+      padding: cardPadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          buildSectionHeader(
+            icon: Icons.speed_rounded,
+            title: 'Проверка ping',
+            subtitle: 'Метод проверки задержки в списке серверов.',
+            accent: AppColors.accent,
+          ),
+          const SizedBox(height: 16),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment<String>(
+                value: StorageService.pingMethodTcp,
+                icon: Icon(Icons.settings_ethernet_rounded, size: 18),
+                label: Text('TCP'),
+              ),
+              ButtonSegment<String>(
+                value: StorageService.pingMethodIcmp,
+                icon: Icon(Icons.network_ping_rounded, size: 18),
+                label: Text('ICMP'),
+              ),
+            ],
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                return states.contains(WidgetState.selected)
+                    ? accentSurface
+                    : glassSurfaceSoft;
+              }),
+              foregroundColor: WidgetStateProperty.resolveWith((states) {
+                return states.contains(WidgetState.selected)
+                    ? glassLabel
+                    : glassMutedLabel;
+              }),
+              side: WidgetStateProperty.resolveWith((states) {
+                return BorderSide(
+                  color: states.contains(WidgetState.selected)
+                      ? accentBorder
+                      : glassBorder,
+                );
+              }),
+              textStyle: WidgetStateProperty.all(
+                const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              padding: WidgetStateProperty.all(
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+            ),
+            selected: {_pingMethod},
+            onSelectionChanged: (selection) async {
+              final next = selection.first;
+              await StorageService.setPingMethod(next);
+              setState(() => _pingMethod = next);
+            },
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _pingMethod == StorageService.pingMethodIcmp
+                ? 'ICMP использует системный ping до адреса сервера. Подходит для Hysteria, но сервер может блокировать ICMP.'
+                : 'TCP проверяет подключение к порту сервера. Хорошо для VLESS/SS, но Hysteria часто отвечает fail.',
+            style: TextStyle(
+              color: c.textSecondary,
+              fontSize: 12.5,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+
     final windowsCard = isWindows
         ? GlassCard(
             borderRadius: BorderRadius.circular(isDesktopSettings ? 28 : 24),
@@ -2022,6 +2103,12 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                             : 'Системный прокси',
                         accent: AppColors.warning,
                       ),
+                      buildDesktopStatTile(
+                        icon: Icons.speed_rounded,
+                        label: 'Ping',
+                        value: _pingMethodLabel,
+                        accent: AppColors.accent,
+                      ),
                     ],
                   ),
                 ),
@@ -2073,6 +2160,8 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                           child: Column(
                             children: [
                               autoUpdateCard,
+                              const SizedBox(height: 18),
+                              pingCard,
                               if (windowsCard != null) ...[
                                 const SizedBox(height: 18),
                                 windowsCard,
@@ -2092,6 +2181,8 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                           child: Column(
                             children: [
                               autoUpdateCard,
+                              const SizedBox(height: 16),
+                              pingCard,
                               if (windowsCard != null) ...[
                                 const SizedBox(height: 16),
                                 windowsCard,
@@ -2105,6 +2196,8 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
                     )
                   else ...[
                     autoUpdateCard,
+                    const SizedBox(height: 16),
+                    pingCard,
                     if (windowsCard != null) ...[
                       const SizedBox(height: 16),
                       windowsCard,

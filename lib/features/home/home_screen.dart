@@ -1244,7 +1244,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final messenger = ScaffoldMessenger.of(context);
     _showSnack(
       messenger,
-      'Проверка TCP ping: ${sub.name}...',
+      'Проверка ping: ${sub.name}...',
       isError: false,
       type: _TopNoticeType.info,
     );
@@ -1252,7 +1252,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final results = await Future.wait(
         targetServers.map((server) async {
-          final ping = await _measureTcpPing(server.host, server.port);
+          final ping = await _measureServerPing(server);
           if (mounted) {
             setState(() {
               _tcpPingByServerId[server.id] = ping;
@@ -1279,8 +1279,7 @@ class _HomeScreenState extends State<HomeScreen> {
         isError: false,
       );
     } catch (error, stackTrace) {
-      debugPrint(
-          'TCP ping failed for subscription ${sub.id}: $error\n$stackTrace');
+      debugPrint('Ping failed for subscription ${sub.id}: $error\n$stackTrace');
       if (!mounted) return;
       _showSnack(
         messenger,
@@ -1303,8 +1302,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<int?> _measureTcpPing(String host, int port) =>
-      measureTcpPing(host, port);
+  Future<int?> _measureServerPing(ServerConfig server) {
+    final pingMethod = StorageService.getPingMethod();
+    if (pingMethod == StorageService.pingMethodIcmp) {
+      return measureIcmpPing(server.host);
+    }
+    return measureTcpPing(server.host, server.port);
+  }
 
   void _openSettings() {
     Navigator.of(context).push(
