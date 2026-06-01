@@ -50,22 +50,37 @@ Future<int?> measureProxyHttpPing(
 
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 5)
+      ..idleTimeout = const Duration(seconds: 15)
       ..findProxy = (_) => 'PROXY 127.0.0.1:$port';
-    final sw = Stopwatch()..start();
     try {
-      final request = await client
-          .openUrl(method.toUpperCase() == 'HEAD' ? 'HEAD' : 'GET', testUri)
-          .timeout(const Duration(seconds: 8));
-      request.followRedirects = false;
-      final response =
-          await request.close().timeout(const Duration(seconds: 8));
-      await response.drain<void>().timeout(const Duration(seconds: 8));
-      sw.stop();
-      final statusCode = response.statusCode;
-      if (statusCode < 200 || statusCode >= 500) {
-        return null;
+      final normalizedMethod = method.toUpperCase() == 'HEAD' ? 'HEAD' : 'GET';
+      int? warmupPing;
+      final samples = <int>[];
+
+      for (var attempt = 0; attempt < 4; attempt++) {
+        final ping = await _measureProxyHttpSample(
+          client,
+          testUri,
+          method: normalizedMethod,
+        );
+        if (ping != null) {
+          if (warmupPing == null) {
+            warmupPing = ping;
+          } else {
+            samples.add(ping);
+          }
+        }
+
+        if (attempt < 3) {
+          await Future.delayed(const Duration(milliseconds: 120));
+        }
       }
-      return sw.elapsedMilliseconds <= 0 ? 1 : sw.elapsedMilliseconds;
+
+      if (samples.isEmpty) {
+        return warmupPing;
+      }
+      samples.sort();
+      return samples.first;
     } finally {
       client.close(force: true);
     }
@@ -79,6 +94,31 @@ Future<int?> measureProxyHttpPing(
     try {
       await tempDir.delete(recursive: true);
     } catch (_) {}
+  }
+}
+
+Future<int?> _measureProxyHttpSample(
+  HttpClient client,
+  Uri testUri, {
+  required String method,
+}) async {
+  final sw = Stopwatch()..start();
+  try {
+    final request = await client.openUrl(method, testUri).timeout(
+          const Duration(seconds: 8),
+        );
+    request.followRedirects = false;
+    request.headers.set('Cache-Control', 'no-cache');
+    final response = await request.close().timeout(const Duration(seconds: 8));
+    await response.drain<void>().timeout(const Duration(seconds: 8));
+    sw.stop();
+    final statusCode = response.statusCode;
+    if (statusCode < 200 || statusCode >= 500) {
+      return null;
+    }
+    return sw.elapsedMilliseconds <= 0 ? 1 : sw.elapsedMilliseconds;
+  } catch (_) {
+    return null;
   }
 }
 
