@@ -38,6 +38,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _refreshing = {};
   final Set<String> _checkingPing = {};
   final Map<String, int?> _tcpPingByServerId = {};
+  final Set<String> _pendingPingServerIds = {};
+  final Set<String> _measuredPingServerIds = {};
   OverlayEntry? _topNoticeEntry;
   Timer? _topNoticeTimer;
   Timer? _subscriptionAutoRefreshTimer;
@@ -150,6 +152,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _syncPingCache() {
+    final activeServerIds = _servers.map((server) => server.id).toSet();
     final next = <String, int?>{};
     for (final server in _servers) {
       next[server.id] = _tcpPingByServerId[server.id];
@@ -157,6 +160,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _tcpPingByServerId
       ..clear()
       ..addAll(next);
+    _pendingPingServerIds.removeWhere((id) => !activeServerIds.contains(id));
+    _measuredPingServerIds.removeWhere((id) => !activeServerIds.contains(id));
   }
 
   @override
@@ -849,6 +854,8 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _ServerRow(
               server: server,
               pingMs: _tcpPingByServerId[server.id],
+              isPingLoading: _pendingPingServerIds.contains(server.id),
+              hasMeasuredPing: _measuredPingServerIds.contains(server.id),
               isSelected: effectiveSelectedId == server.id,
               onTap: () {
                 vpn.selectServer(server);
@@ -1229,6 +1236,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _checkingPing.add(sub.id);
       for (final server in targetServers) {
         _tcpPingByServerId[server.id] = null;
+        _pendingPingServerIds.add(server.id);
+        _measuredPingServerIds.remove(server.id);
       }
     });
 
@@ -1240,28 +1249,56 @@ class _HomeScreenState extends State<HomeScreen> {
       type: _TopNoticeType.info,
     );
 
-    int okCount = 0;
     try {
-      for (final server in targetServers) {
-        final ping = await _measureTcpPing(server.host, server.port);
-        if (!mounted) return;
-        if (ping != null) okCount++;
-        setState(() {
-          _tcpPingByServerId[server.id] = ping;
-        });
-      }
+      final results = await Future.wait(
+        targetServers.map((server) async {
+          final ping = await _measureTcpPing(server.host, server.port);
+          if (mounted) {
+            setState(() {
+              _tcpPingByServerId[server.id] = ping;
+              _pendingPingServerIds.remove(server.id);
+              _measuredPingServerIds.add(server.id);
+            });
+          } else {
+            _tcpPingByServerId[server.id] = ping;
+            _pendingPingServerIds.remove(server.id);
+            _measuredPingServerIds.add(server.id);
+          }
+          return ping;
+        }),
+      );
+
+      final okCount = results.whereType<int>().length;
+      final failCount = results.length - okCount;
 
       if (!mounted) return;
       _showSnack(
         messenger,
-        'Пинг ${sub.name}: $okCount/${targetServers.length}',
+        'Пинг ${sub.name}: $okCount/${targetServers.length}'
+        '${failCount > 0 ? ', недоступно: $failCount' : ''}',
         isError: false,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+          'TCP ping failed for subscription ${sub.id}: $error\n$stackTrace');
+      if (!mounted) return;
+      _showSnack(
+        messenger,
+        'Не удалось завершить проверку ping',
       );
     } finally {
       if (mounted) {
-        setState(() => _checkingPing.remove(sub.id));
+        setState(() {
+          _checkingPing.remove(sub.id);
+          for (final server in targetServers) {
+            _pendingPingServerIds.remove(server.id);
+          }
+        });
       } else {
         _checkingPing.remove(sub.id);
+        for (final server in targetServers) {
+          _pendingPingServerIds.remove(server.id);
+        }
       }
     }
   }
@@ -1554,12 +1591,16 @@ class _SubCard extends StatelessWidget {
 class _ServerRow extends StatelessWidget {
   final ServerConfig server;
   final int? pingMs;
+  final bool isPingLoading;
+  final bool hasMeasuredPing;
   final bool isSelected;
   final VoidCallback onTap;
 
   const _ServerRow({
     required this.server,
     required this.pingMs,
+    required this.isPingLoading,
+    required this.hasMeasuredPing,
     required this.isSelected,
     required this.onTap,
   });
@@ -1624,9 +1665,9 @@ class _ServerRow extends StatelessWidget {
 
   String get _subtitle =>
       _isUnnamedKey ? '${server.host}:${server.port}' : server.protocolUpper;
-  String get _pingText => pingMs == null ? '--' : '$pingMs ms';
-
   Color _pingColor(Color fallback) {
+    if (isPingLoading) return fallback;
+    if (hasMeasuredPing && pingMs == null) return AppColors.error;
     if (pingMs == null) return fallback;
     if (pingMs! < 100) return AppColors.connected;
     if (pingMs! < 300) return AppColors.warning;
@@ -1645,6 +1686,11 @@ class _ServerRow extends StatelessWidget {
     final selectedSecondaryColor = isDark
         ? AppColors.accentGlow.withValues(alpha: 0.75)
         : const Color(0xFF6B7C95);
+    final pingStyle = TextStyle(
+      color: isSelected ? selectedSecondaryColor : _pingColor(c.textSecondary),
+      fontSize: 10,
+      fontWeight: FontWeight.w600,
+    );
 
     return GestureDetector(
       onTap: onTap,
@@ -1736,19 +1782,94 @@ class _ServerRow extends StatelessWidget {
                 ],
               ),
             ),
-            Text(
-              _pingText,
-              style: TextStyle(
-                color: isSelected
-                    ? selectedSecondaryColor
-                    : _pingColor(c.textSecondary),
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
+            _PingStatusLabel(
+              pingMs: pingMs,
+              isLoading: isPingLoading,
+              hasMeasuredPing: hasMeasuredPing,
+              style: pingStyle,
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PingStatusLabel extends StatelessWidget {
+  final int? pingMs;
+  final bool isLoading;
+  final bool hasMeasuredPing;
+  final TextStyle style;
+
+  const _PingStatusLabel({
+    required this.pingMs,
+    required this.isLoading,
+    required this.hasMeasuredPing,
+    required this.style,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return _AnimatedDotsLabel(style: style);
+    }
+
+    final text = pingMs != null
+        ? '$pingMs ms'
+        : hasMeasuredPing
+            ? 'fail'
+            : '--';
+    return Text(text, style: style);
+  }
+}
+
+class _AnimatedDotsLabel extends StatefulWidget {
+  final TextStyle style;
+
+  const _AnimatedDotsLabel({required this.style});
+
+  @override
+  State<_AnimatedDotsLabel> createState() => _AnimatedDotsLabelState();
+}
+
+class _AnimatedDotsLabelState extends State<_AnimatedDotsLabel>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final dotsCount = ((_controller.value * 3).floor() % 3) + 1;
+        final dots = '.' * dotsCount;
+
+        return Stack(
+          alignment: Alignment.centerRight,
+          children: [
+            Opacity(
+              opacity: 0,
+              child: Text('...', style: widget.style),
+            ),
+            Text(dots, style: widget.style),
+          ],
+        );
+      },
     );
   }
 }

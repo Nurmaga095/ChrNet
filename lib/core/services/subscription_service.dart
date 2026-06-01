@@ -23,12 +23,13 @@ class SubscriptionService {
   static Future<SubscriptionRefreshResult> refreshSubscription(
     Subscription subscription,
   ) async {
+    var nextSubscription = subscription;
     final result =
         await ImportService.importFromSubscriptionUrl(subscription.url);
     if (result.result != ImportResult.success) {
       return SubscriptionRefreshResult(
         success: false,
-        subscription: subscription,
+        subscription: nextSubscription,
         error: result.error ?? 'Ошибка обновления подписки',
       );
     }
@@ -63,26 +64,30 @@ class SubscriptionService {
     }
     await StorageService.saveServers(nextServers);
 
-    subscription.lastUpdated = DateTime.now();
-    subscription.serverCount = nextServers.length;
-    subscription.dnsServers = result.dnsServers;
+    if (result.subscriptionUrl != null) {
+      nextSubscription =
+          nextSubscription.copyWith(url: result.subscriptionUrl!);
+    }
+    nextSubscription.lastUpdated = DateTime.now();
+    nextSubscription.serverCount = nextServers.length;
+    nextSubscription.dnsServers = result.dnsServers;
     if (result.profileTitle != null) {
-      subscription.name = result.profileTitle!;
+      nextSubscription.name = result.profileTitle!;
     }
     if (result.uploadBytes != null) {
-      subscription.uploadBytes = result.uploadBytes;
+      nextSubscription.uploadBytes = result.uploadBytes;
     }
     if (result.downloadBytes != null) {
-      subscription.downloadBytes = result.downloadBytes;
+      nextSubscription.downloadBytes = result.downloadBytes;
     }
     if (result.totalBytes != null) {
-      subscription.totalBytes = result.totalBytes;
+      nextSubscription.totalBytes = result.totalBytes;
     }
     if (result.expireTimestamp != null) {
-      subscription.expireTimestamp = result.expireTimestamp;
+      nextSubscription.expireTimestamp = result.expireTimestamp;
     }
-    subscription.description = result.description;
-    await StorageService.saveSubscription(subscription);
+    nextSubscription.description = result.description;
+    await StorageService.saveSubscription(nextSubscription);
 
     final selectedServerStillExists = selectedServerId != null &&
         nextServers.any((server) => server.id == selectedServerId);
@@ -94,7 +99,7 @@ class SubscriptionService {
 
     return SubscriptionRefreshResult(
       success: true,
-      subscription: subscription,
+      subscription: nextSubscription,
       servers: nextServers,
       replacementSelectedServer: replacementSelectedServer,
     );

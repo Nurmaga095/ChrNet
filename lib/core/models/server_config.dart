@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class ServerConfig {
   final String id;
   final String name;
@@ -27,8 +29,70 @@ class ServerConfig {
     this.subscriptionId,
   });
 
-  String get displayName => name.isNotEmpty ? name : '$protocol://$host:$port';
-  String get protocolUpper => protocol.toUpperCase();
+  String get displayName {
+    if (name.isNotEmpty) return name;
+    if (protocol == 'json') {
+      final sourceProtocol = _sourceProtocolLabel;
+      if (sourceProtocol != null && sourceProtocol.isNotEmpty) {
+        return '${sourceProtocol.toUpperCase()} JSON';
+      }
+      return 'JSON://$host:$port';
+    }
+    return '$protocol://$host:$port';
+  }
+
+  String get protocolUpper {
+    if (protocol != 'json') return protocol.toUpperCase();
+
+    final sourceProtocol = _sourceProtocolLabel;
+    if (sourceProtocol != null && sourceProtocol.isNotEmpty) {
+      return '${sourceProtocol.toUpperCase()} | JSON';
+    }
+    return 'JSON';
+  }
+
+  String? get _sourceProtocolLabel {
+    final explicit = extras['sourceProtocol']?.trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      return explicit;
+    }
+
+    final rawConfigJson = extras['configJson'];
+    if (rawConfigJson == null || rawConfigJson.trim().isEmpty) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(rawConfigJson);
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+
+      final outbounds = decoded['outbounds'];
+      if (outbounds is! List) {
+        return null;
+      }
+
+      for (final outbound in outbounds) {
+        if (outbound is! Map) continue;
+        final protocol = outbound['protocol']?.toString().trim().toLowerCase();
+        if (protocol == null || protocol.isEmpty) continue;
+        if ({
+          'freedom',
+          'blackhole',
+          'dns',
+          'socks',
+          'http',
+          'loopback',
+        }.contains(protocol)) {
+          continue;
+        }
+        return protocol;
+      }
+    } catch (_) {}
+
+    return null;
+  }
 
   ServerConfig copyWith({
     String? id,

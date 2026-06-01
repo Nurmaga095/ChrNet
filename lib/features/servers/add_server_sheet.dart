@@ -14,7 +14,7 @@ class AddServerSheet extends StatelessWidget {
     final c = AppColors.of(context);
     final supportsQrScan =
         Theme.of(context).platform == TargetPlatform.android ||
-            Theme.of(context).platform == TargetPlatform.iOS;
+        Theme.of(context).platform == TargetPlatform.iOS;
     return Container(
       decoration: BoxDecoration(
         color: c.cardBackground,
@@ -68,7 +68,7 @@ class AddServerSheet extends StatelessWidget {
             _ImportOption(
               icon: Icons.content_paste_rounded,
               title: 'Из буфера обмена',
-              subtitle: 'Вставить скопированный vless:// vmess:// trojan://',
+              subtitle: 'Вставить URI или JSON-конфиг из буфера обмена',
               onTap: () async {
                 // Await result while sheet is still open, then close
                 final result = await ImportService.importFromClipboard();
@@ -96,8 +96,9 @@ class AddServerSheet extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => QrScanScreen(
                         onScanned: (uri) async {
-                          final result =
-                              await ImportService.importFromText(uri);
+                          final result = await ImportService.importFromText(
+                            uri,
+                          );
                           _handleResult(messenger, result);
                         },
                       ),
@@ -112,7 +113,7 @@ class AddServerSheet extends StatelessWidget {
             _ImportOption(
               icon: Icons.edit_rounded,
               title: 'Ввести URI вручную',
-              subtitle: 'Вставить или ввести vless:// / vmess:// / trojan://',
+              subtitle: 'Вставить URI или Xray JSON вручную',
               onTap: () => _showUriInputDialog(context),
             ),
 
@@ -162,12 +163,15 @@ class AddServerSheet extends StatelessWidget {
                 Navigator.pop(ctx); // close dialog
                 nav.pop(); // close bottom sheet
                 _showSnack(messenger, 'Загрузка подписки...', isError: false);
-                final result =
-                    await ImportService.importFromSubscriptionUrl(url);
+                final result = await ImportService.importFromSubscriptionUrl(
+                  url,
+                );
                 _handleResult(messenger, result);
               },
-              child: const Text('Загрузить',
-                  style: TextStyle(color: AppColors.accent)),
+              child: const Text(
+                'Загрузить',
+                style: TextStyle(color: AppColors.accent),
+              ),
             ),
           ],
         );
@@ -196,7 +200,7 @@ class AddServerSheet extends StatelessWidget {
             autofocus: true,
             style: TextStyle(color: c.textPrimary, fontSize: 13),
             decoration: const InputDecoration(
-              hintText: 'vless://... или vmess://... или trojan://...',
+              hintText: 'vless://... или vmess://... или JSON...',
             ),
             maxLines: 4,
             minLines: 1,
@@ -217,8 +221,10 @@ class AddServerSheet extends StatelessWidget {
                 final result = await ImportService.importFromUri(text);
                 _handleResult(messenger, result);
               },
-              child: const Text('Добавить',
-                  style: TextStyle(color: AppColors.accent)),
+              child: const Text(
+                'Добавить',
+                style: TextStyle(color: AppColors.accent),
+              ),
             ),
           ],
         );
@@ -254,8 +260,11 @@ class AddServerSheet extends StatelessWidget {
     }
   }
 
-  void _showSnack(ScaffoldMessengerState messenger, String message,
-      {bool isError = true}) {
+  void _showSnack(
+    ScaffoldMessengerState messenger,
+    String message, {
+    bool isError = true,
+  }) {
     messenger.showSnackBar(
       SnackBar(
         content: Text(message),
