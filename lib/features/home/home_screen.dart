@@ -1305,9 +1305,26 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<int?> _measureServerPing(ServerConfig server) {
     final pingMethod = StorageService.getPingMethod();
     if (pingMethod == StorageService.pingMethodIcmp) {
-      return measureIcmpPing(server.host);
+      return measureIcmpPing(server.host).then((ping) {
+        if (ping != null || _usesUdpProtocol(server)) {
+          return ping;
+        }
+        return measureTcpPing(server.host, server.port);
+      });
     }
     return measureTcpPing(server.host, server.port);
+  }
+
+  bool _usesUdpProtocol(ServerConfig server) {
+    final protocol = server.protocol.toLowerCase();
+    final sourceProtocol =
+        server.extras['sourceProtocol']?.trim().toLowerCase() ?? '';
+    return protocol == 'hysteria' ||
+        protocol == 'hysteria2' ||
+        protocol == 'hy2' ||
+        sourceProtocol == 'hysteria' ||
+        sourceProtocol == 'hysteria2' ||
+        sourceProtocol == 'hy2';
   }
 
   void _openSettings() {
@@ -1671,11 +1688,26 @@ class _ServerRow extends StatelessWidget {
       _isUnnamedKey ? '${server.host}:${server.port}' : server.protocolUpper;
   Color _pingColor(Color fallback) {
     if (isPingLoading) return fallback;
+    if (hasMeasuredPing && pingMs == null && _usesUdpProtocol) {
+      return fallback;
+    }
     if (hasMeasuredPing && pingMs == null) return AppColors.error;
     if (pingMs == null) return fallback;
     if (pingMs! < 100) return AppColors.connected;
     if (pingMs! < 300) return AppColors.warning;
     return AppColors.error;
+  }
+
+  bool get _usesUdpProtocol {
+    final protocol = server.protocol.toLowerCase();
+    final sourceProtocol =
+        server.extras['sourceProtocol']?.trim().toLowerCase() ?? '';
+    return protocol == 'hysteria' ||
+        protocol == 'hysteria2' ||
+        protocol == 'hy2' ||
+        sourceProtocol == 'hysteria' ||
+        sourceProtocol == 'hysteria2' ||
+        sourceProtocol == 'hy2';
   }
 
   @override
@@ -1790,6 +1822,7 @@ class _ServerRow extends StatelessWidget {
               pingMs: pingMs,
               isLoading: isPingLoading,
               hasMeasuredPing: hasMeasuredPing,
+              unavailableLabel: _usesUdpProtocol ? 'udp' : 'fail',
               style: pingStyle,
             ),
           ],
@@ -1803,12 +1836,14 @@ class _PingStatusLabel extends StatelessWidget {
   final int? pingMs;
   final bool isLoading;
   final bool hasMeasuredPing;
+  final String unavailableLabel;
   final TextStyle style;
 
   const _PingStatusLabel({
     required this.pingMs,
     required this.isLoading,
     required this.hasMeasuredPing,
+    required this.unavailableLabel,
     required this.style,
   });
 
@@ -1821,7 +1856,7 @@ class _PingStatusLabel extends StatelessWidget {
     final text = pingMs != null
         ? '$pingMs ms'
         : hasMeasuredPing
-            ? 'fail'
+            ? unavailableLabel
             : '--';
     return Text(text, style: style);
   }

@@ -1939,7 +1939,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
           const SizedBox(height: 10),
           Text(
             _pingMethod == StorageService.pingMethodIcmp
-                ? 'ICMP использует системный ping до адреса сервера. Подходит для Hysteria, но сервер может блокировать ICMP.'
+                ? 'ICMP использует системный ping до адреса сервера. Если ICMP закрыт, TCP-ноды проверяются через TCP, а Hysteria помечается как UDP.'
                 : 'TCP проверяет подключение к порту сервера. Хорошо для VLESS/SS, но Hysteria часто отвечает fail.',
             style: TextStyle(
               color: c.textSecondary,
