@@ -65,22 +65,32 @@ class XrayVpnService : VpnService() {
                 return START_NOT_STICKY
             }
             ACTION_RESTART -> {
-                val rawUri = intent.getStringExtra("config") ?: return START_NOT_STICKY
+                val configJson = intent.getStringExtra("configJson")
+                val rawUri = intent.getStringExtra("config")
                 val ruRouting = intent.getBooleanExtra("ruRouting", true)
-                restartVpn(rawUri, ruRouting)
+                restartVpn(configJson, rawUri, ruRouting)
                 return START_STICKY
             }
         }
-        val rawUri = intent?.getStringExtra("config") ?: return START_NOT_STICKY
+        val configJson = intent?.getStringExtra("configJson")
+        val rawUri = intent?.getStringExtra("config")
+        if (configJson.isNullOrBlank() && rawUri.isNullOrBlank()) {
+            return START_NOT_STICKY
+        }
         val ruRouting = intent.getBooleanExtra("ruRouting", true)
-        startVpn(rawUri, ruRouting)
+        startVpn(configJson, rawUri, ruRouting)
         return START_STICKY
     }
 
-    private fun startVpn(rawUri: String, ruRouting: Boolean, takeoverRetry: Int = 0) {
+    private fun startVpn(
+        configJson: String?,
+        rawUri: String?,
+        ruRouting: Boolean,
+        takeoverRetry: Int = 0,
+    ) {
         val sessionId = ++activeSessionId
         intentionallyStopped = false
-        if (!isSecureTransport(rawUri)) {
+        if (!isSecureTransport(rawUri, configJson)) {
             notifyError(
                 "Для Android доступны только защищенные VPN-конфиги " +
                     "(TLS, Reality, Trojan или Shadowsocks)."
@@ -109,7 +119,7 @@ class XrayVpnService : VpnService() {
                     val runnable = Runnable {
                         pendingTakeoverRunnable = null
                         if (!intentionallyStopped) {
-                            startVpn(rawUri, ruRouting, nextAttempt)
+                            startVpn(configJson, rawUri, ruRouting, nextAttempt)
                         }
                     }
                     pendingTakeoverRunnable = runnable
@@ -125,7 +135,11 @@ class XrayVpnService : VpnService() {
             vpnInterface = tun
 
             // Build Xray JSON config with tun inbound
-            val config = buildXrayConfig(rawUri, ruRouting)
+            val config = when {
+                !configJson.isNullOrBlank() -> configJson
+                !rawUri.isNullOrBlank() -> buildXrayConfig(rawUri, ruRouting)
+                else -> throw IllegalArgumentException("Missing VPN config")
+            }
 
             // Create callback handler
             val callback = object : CoreCallbackHandler {
@@ -160,7 +174,7 @@ class XrayVpnService : VpnService() {
         }
     }
 
-    private fun restartVpn(rawUri: String, ruRouting: Boolean) {
+    private fun restartVpn(configJson: String?, rawUri: String?, ruRouting: Boolean) {
         intentionallyStopped = true
         stopCore(notifyFlutter = false, stopService = false)
         intentionallyStopped = false
@@ -169,7 +183,7 @@ class XrayVpnService : VpnService() {
         pendingRestartRunnable?.let { restartHandler.removeCallbacks(it) }
         val runnable = Runnable {
             pendingRestartRunnable = null
-            startVpn(rawUri, ruRouting)
+            startVpn(configJson, rawUri, ruRouting)
         }
         pendingRestartRunnable = runnable
         restartHandler.postDelayed(runnable, 250)
@@ -518,36 +532,70 @@ class XrayVpnService : VpnService() {
         }.toMap()
     }
 
-    private fun isSecureTransport(uri: String): Boolean = try {
-        when {
-            uri.startsWith("trojan://", ignoreCase = true) -> true
-            uri.startsWith("ss://", ignoreCase = true) -> true
-            uri.startsWith("vless://", ignoreCase = true) -> {
-                val withoutScheme = uri.substring("vless://".length)
-                val hash = withoutScheme.lastIndexOf('#')
-                val main = if (hash >= 0) withoutScheme.substring(0, hash) else withoutScheme
-                val at = main.indexOf('@')
-                val hp = if (at >= 0) main.substring(at + 1) else main
-                val q = hp.indexOf('?')
-                val query = parseQuery(if (q >= 0) hp.substring(q + 1) else "")
-                when (query["security"]?.lowercase()) {
-                    "tls", "reality" -> true
+    private fun isSecureTransport(rawUri: String?, configJson: String?): Boolean {
+        return try {
+            if (!configJson.isNullOrBlank()) {
+                isSecureTransportFromConfig(configJson)
+            } else {
+                val uri = rawUri ?: return false
+                when {
+                    uri.startsWith("trojan://", ignoreCase = true) -> true
+                    uri.startsWith("ss://", ignoreCase = true) -> true
+                    uri.startsWith("vless://", ignoreCase = true) -> {
+                        val withoutScheme = uri.substring("vless://".length)
+                        val hash = withoutScheme.lastIndexOf('#')
+                        val main = if (hash >= 0) withoutScheme.substring(0, hash) else withoutScheme
+                        val at = main.indexOf('@')
+                        val hp = if (at >= 0) main.substring(at + 1) else main
+                        val q = hp.indexOf('?')
+                        val query = parseQuery(if (q >= 0) hp.substring(q + 1) else "")
+                        when (query["security"]?.lowercase()) {
+                            "tls", "reality" -> true
+                            else -> false
+                        }
+                    }
+                    uri.startsWith("vmess://", ignoreCase = true) -> {
+                        val json = JSONObject(
+                            android.util.Base64.decode(
+                                padBase64(uri.substring("vmess://".length)),
+                                android.util.Base64.DEFAULT
+                            ).toString(Charsets.UTF_8)
+                        )
+                        json.optString("tls", "none").equals("tls", ignoreCase = true)
+                    }
                     else -> false
                 }
             }
-            uri.startsWith("vmess://", ignoreCase = true) -> {
-                val json = JSONObject(
-                    android.util.Base64.decode(
-                        padBase64(uri.substring("vmess://".length)),
-                        android.util.Base64.DEFAULT
-                    ).toString(Charsets.UTF_8)
-                )
-                json.optString("tls", "none").equals("tls", ignoreCase = true)
-            }
-            else -> false
+        } catch (_: Exception) {
+            false
         }
-    } catch (_: Exception) {
-        false
+    }
+
+    private fun isSecureTransportFromConfig(configJson: String): Boolean {
+        val config = JSONObject(configJson)
+        val outbounds = config.optJSONArray("outbounds") ?: return false
+
+        var hasProxyOutbound = false
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            when (outbound.optString("protocol").lowercase()) {
+                "freedom", "blackhole", "dns", "socks", "http", "loopback" -> continue
+                "trojan", "shadowsocks", "hysteria", "hysteria2" -> {
+                    hasProxyOutbound = true
+                }
+                "vless", "vmess" -> {
+                    hasProxyOutbound = true
+                    val streamSettings = outbound.optJSONObject("streamSettings")
+                    val security = streamSettings?.optString("security")?.lowercase()
+                    if (security != "tls" && security != "reality") {
+                        return false
+                    }
+                }
+                else -> return false
+            }
+        }
+
+        return hasProxyOutbound
     }
 
     private fun splitHostPort(hp: String): Pair<String, Int> {

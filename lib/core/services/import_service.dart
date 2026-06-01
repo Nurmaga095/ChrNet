@@ -117,26 +117,68 @@ class ImportService {
         );
       }
       final device = await DeviceService.getDeviceInfo();
-      final response = await http.get(
-        uri,
-        headers: {
-          'User-Agent': 'ChrNet/1.0 (Android)',
-          if (device.deviceId.isNotEmpty) 'x-hwid': device.deviceId,
-          'x-device-os': 'Android',
-          if (device.osVersion.isNotEmpty) 'x-ver-os': device.osVersion,
-          if (device.model.isNotEmpty) 'x-device-model': device.model,
-        },
-      ).timeout(const Duration(seconds: 15));
+      final headers = <String, String>{
+        'User-Agent': 'ChrNet/1.0 (Android)',
+        if (device.deviceId.isNotEmpty) 'x-hwid': device.deviceId,
+        'x-device-os': 'Android',
+        if (device.osVersion.isNotEmpty) 'x-ver-os': device.osVersion,
+        if (device.model.isNotEmpty) 'x-device-model': device.model,
+      };
 
-      if (response.statusCode != 200) {
+      final primaryFetch =
+          await _fetchSubscriptionResponse(uri, headers: headers);
+      if (primaryFetch.error != null) {
         return ImportResponse(
           result: ImportResult.error,
           configs: const [],
-          error: 'Ошибка сервера: ${response.statusCode}',
+          error: primaryFetch.error,
+        );
+      }
+      if (primaryFetch.response == null) {
+        return const ImportResponse(
+          result: ImportResult.error,
+          configs: [],
+          error: 'Не удалось получить ответ подписки',
         );
       }
 
-      final body = response.body;
+      var activeUri = uri;
+      var activeResponse = primaryFetch.response!;
+      var body = activeResponse.body;
+      var configs = ConfigParser.parseSubscription(body);
+
+      if (!_containsJsonConfig(configs)) {
+        final jsonUri = _buildJsonSubscriptionUri(uri);
+        if (jsonUri != null) {
+          final jsonFetch = await _fetchSubscriptionResponse(
+            jsonUri,
+            headers: headers,
+          );
+          final jsonResponse = jsonFetch.response;
+          if (jsonFetch.error == null &&
+              jsonResponse != null &&
+              jsonResponse.statusCode == 200 &&
+              jsonResponse.body.trim().isNotEmpty) {
+            final jsonConfigs =
+                ConfigParser.parseSubscription(jsonResponse.body);
+            if (_containsJsonConfig(jsonConfigs)) {
+              activeUri = jsonUri;
+              activeResponse = jsonResponse;
+              body = jsonResponse.body;
+              configs = jsonConfigs;
+            }
+          }
+        }
+      }
+
+      if (activeResponse.statusCode != 200) {
+        return ImportResponse(
+          result: ImportResult.error,
+          configs: const [],
+          error: 'Ошибка сервера: ${activeResponse.statusCode}',
+        );
+      }
+
       if (body.trim().isEmpty) {
         return const ImportResponse(
           result: ImportResult.noConfig,
@@ -145,7 +187,6 @@ class ImportService {
         );
       }
 
-      final configs = ConfigParser.parseSubscription(body);
       if (configs.isEmpty) {
         return const ImportResponse(
           result: ImportResult.noConfig,
@@ -154,16 +195,17 @@ class ImportService {
         );
       }
 
-      final dnsServers = _extractDnsServers(response.headers, body);
+      final dnsServers = _extractDnsServers(activeResponse.headers, body);
 
       // Парсим profile-title (название подписки)
-      final profileTitleRaw = _headerValue(response.headers, 'profile-title');
+      final profileTitleRaw =
+          _headerValue(activeResponse.headers, 'profile-title');
       final profileTitle = profileTitleRaw != null
           ? _nonEmptyOrNull(_decodeHeaderValue(profileTitleRaw))
           : null;
 
       // Парсим announce (описание — многострочный текст)
-      final announceRaw = _headerValue(response.headers, 'announce');
+      final announceRaw = _headerValue(activeResponse.headers, 'announce');
       final List<String> description = announceRaw != null
           ? _decodeHeaderValue(announceRaw)
               .split(RegExp(r'[\r\n]+'))
@@ -174,7 +216,8 @@ class ImportService {
 
       // Парсим заголовок subscription-userinfo
       // Ищем заголовок в любом регистре и с любым разделителем
-      final userInfo = _headerValue(response.headers, 'subscription-userinfo');
+      final userInfo =
+          _headerValue(activeResponse.headers, 'subscription-userinfo');
       int? upload, download, total, expire;
       if (userInfo != null) {
         // Поддерживаем разделители ; и ,
@@ -196,8 +239,10 @@ class ImportService {
 
       // Remnawave: дата обновления подписки отдельным заголовком.
       // Используем как fallback для expire, если в subscription-userinfo нет expire.
-      final refillRaw =
-          _headerValue(response.headers, 'subscription-refill-date');
+      final refillRaw = _headerValue(
+        activeResponse.headers,
+        'subscription-refill-date',
+      );
       if (expire == null && refillRaw != null) {
         expire = int.tryParse(refillRaw.trim());
       }
@@ -210,7 +255,7 @@ class ImportService {
         downloadBytes: download,
         totalBytes: total,
         expireTimestamp: expire,
-        subscriptionUrl: url,
+        subscriptionUrl: activeUri.toString(),
         dnsServers: dnsServers,
         description: description,
         profileTitle: profileTitle,
@@ -232,17 +277,7 @@ class ImportService {
 
   // ─── Internal ─────────────────────────────────────────────────────────────
   static ImportResponse _parseUris(String text) {
-    final lines = text
-        .split(RegExp(r'[\r\n]+'))
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty)
-        .toList();
-
-    final configs = <ServerConfig>[];
-    for (int i = 0; i < lines.length; i++) {
-      final c = ConfigParser.parse(lines[i], subscriptionOrder: i);
-      if (c != null) configs.add(c);
-    }
+    final configs = ConfigParser.parseText(text);
 
     if (configs.isEmpty) {
       return const ImportResponse(
@@ -346,10 +381,16 @@ class ImportService {
   /// Проверяет, является ли текст поддерживаемым URI
   static bool isValidVpnUri(String text) {
     final normalized = _normalizeImportText(text);
+    if (normalized.isEmpty) return false;
+    if (ConfigParser.parseText(normalized).isNotEmpty) {
+      return true;
+    }
     return normalized.startsWith('vless://') ||
         normalized.startsWith('vmess://') ||
         normalized.startsWith('trojan://') ||
-        normalized.startsWith('ss://');
+        normalized.startsWith('ss://') ||
+        normalized.startsWith('hysteria2://') ||
+        normalized.startsWith('hy2://');
   }
 
   /// Проверяет, можно ли импортировать текст из QR/буфера.
@@ -403,6 +444,36 @@ class ImportService {
 
   static bool _isSecureSubscriptionUri(Uri uri) {
     return uri.scheme.toLowerCase() == 'https';
+  }
+
+  static bool _containsJsonConfig(List<ServerConfig> configs) {
+    return configs.any((config) => config.protocol.toLowerCase() == 'json');
+  }
+
+  static Uri? _buildJsonSubscriptionUri(Uri uri) {
+    final segments =
+        uri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    if (segments.isEmpty) return null;
+    if (segments.last.toLowerCase() == 'json') return null;
+
+    return uri.replace(
+      pathSegments: [...segments, 'json'],
+    );
+  }
+
+  static Future<({http.Response? response, String? error})>
+      _fetchSubscriptionResponse(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async {
+    try {
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 15));
+      return (response: response, error: null);
+    } catch (e) {
+      return (response: null, error: 'Не удалось подключиться: $e');
+    }
   }
 
   static String? _extractDeepLinkUrl(String raw) {

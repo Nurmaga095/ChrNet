@@ -53,6 +53,33 @@ class Subscription {
       ? null
       : DateTime.fromMillisecondsSinceEpoch(expireTimestamp! * 1000);
 
+  Subscription copyWith({
+    String? id,
+    String? name,
+    String? url,
+    DateTime? lastUpdated,
+    int? serverCount,
+    List<String>? dnsServers,
+    int? uploadBytes,
+    int? downloadBytes,
+    int? totalBytes,
+    int? expireTimestamp,
+    List<String>? description,
+  }) =>
+      Subscription(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        url: url ?? this.url,
+        lastUpdated: lastUpdated ?? this.lastUpdated,
+        serverCount: serverCount ?? this.serverCount,
+        dnsServers: dnsServers ?? this.dnsServers,
+        uploadBytes: uploadBytes ?? this.uploadBytes,
+        downloadBytes: downloadBytes ?? this.downloadBytes,
+        totalBytes: totalBytes ?? this.totalBytes,
+        expireTimestamp: expireTimestamp ?? this.expireTimestamp,
+        description: description ?? this.description,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
