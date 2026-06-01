@@ -1723,17 +1723,6 @@ class _ServerRow extends StatelessWidget {
 
   String get _subtitle =>
       _isUnnamedKey ? '${server.host}:${server.port}' : server.protocolUpper;
-  Color _pingColor(Color fallback) {
-    if (isPingLoading) return fallback;
-    if (hasMeasuredPing && pingMs == null && _usesUdpProtocol) {
-      return fallback;
-    }
-    if (hasMeasuredPing && pingMs == null) return AppColors.error;
-    if (pingMs == null) return fallback;
-    if (pingMs! < 100) return AppColors.connected;
-    if (pingMs! < 300) return AppColors.warning;
-    return AppColors.error;
-  }
 
   bool get _usesUdpProtocol {
     final protocol = server.protocol.toLowerCase();
@@ -1760,7 +1749,7 @@ class _ServerRow extends StatelessWidget {
         ? AppColors.accentGlow.withValues(alpha: 0.75)
         : const Color(0xFF6B7C95);
     final pingStyle = TextStyle(
-      color: isSelected ? selectedSecondaryColor : _pingColor(c.textSecondary),
+      color: isSelected ? selectedSecondaryColor : c.textSecondary,
       fontSize: 10,
       fontWeight: FontWeight.w600,
     );
