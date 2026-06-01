@@ -7,10 +7,13 @@ class StorageService {
   static const String _serversBox = 'servers_v2';
   static const String _subsBox = 'subscriptions_v2';
   static const String _settingsBox = 'settings';
-  static const int _settingsSchemaVersion = 105;
+  static const int _settingsSchemaVersion = 106;
   static const int minSubscriptionAutoUpdateHours = 1;
   static const int maxSubscriptionAutoUpdateHours = 24;
   static const int defaultSubscriptionAutoUpdateHours = 6;
+  static const String pingMethodTcp = 'tcp';
+  static const String pingMethodIcmp = 'icmp';
+  static const String defaultPingMethod = pingMethodTcp;
   static const String _privacyDisclosureVersionKey =
       'privacyDisclosureAcceptedVersion';
 
@@ -66,6 +69,13 @@ class StorageService {
           'subscriptionAutoUpdateHours',
           maxSubscriptionAutoUpdateHours,
         );
+      }
+    }
+
+    if (storedVersion < 106) {
+      final pingMethod = _settingsB.get('pingMethod') as String?;
+      if (pingMethod != pingMethodTcp && pingMethod != pingMethodIcmp) {
+        await _settingsB.put('pingMethod', defaultPingMethod);
       }
     }
 
@@ -190,6 +200,20 @@ class StorageService {
       'subscriptionAutoUpdateHours',
       normalizedHours,
     );
+  }
+
+  static String getPingMethod() {
+    final method = _settingsB.get('pingMethod') as String?;
+    if (method == pingMethodTcp || method == pingMethodIcmp) {
+      return method!;
+    }
+    return defaultPingMethod;
+  }
+
+  static Future<void> setPingMethod(String method) async {
+    final normalizedMethod =
+        method == pingMethodIcmp ? pingMethodIcmp : pingMethodTcp;
+    await _settingsB.put('pingMethod', normalizedMethod);
   }
 
   static String? getPrivacyDisclosureAcceptedVersion() =>

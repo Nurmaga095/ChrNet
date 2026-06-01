@@ -76,7 +76,7 @@ These are authoritative and should not be duplicated carelessly:
 Do not hardcode app versions in UI, platform resources, or scripts.
 
 Current version at the time of this note:
-- `1.0.5+6`
+- `1.1.0+7`
 
 ---
 
@@ -485,6 +485,7 @@ Important settings currently stored:
 - bypass LAN
 - RU routing
 - Windows VPN mode
+- ping check method (`tcp` / `icmp`)
 - subscription auto-update interval
 - privacy disclosure accepted version
 
