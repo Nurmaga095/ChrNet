@@ -33,6 +33,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   static const double _heroScale = 0.7;
+  static const int _proxyPingParallelism = 4;
   List<ServerConfig> _servers = [];
   List<Subscription> _subscriptions = [];
   final Set<String> _refreshing = {};
@@ -1271,9 +1272,13 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       if (useProxyPing) {
-        for (final server in targetServers) {
-          results.add(await measureAndStore(server));
-        }
+        results.addAll(
+          await _measureServersWithLimit(
+            targetServers,
+            parallelism: _proxyPingParallelism,
+            measure: measureAndStore,
+          ),
+        );
       } else {
         results.addAll(
           await Future.wait(targetServers.map(measureAndStore)),
@@ -1312,6 +1317,35 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
+  }
+
+  Future<List<int?>> _measureServersWithLimit(
+    List<ServerConfig> servers, {
+    required int parallelism,
+    required Future<int?> Function(ServerConfig server) measure,
+  }) async {
+    if (servers.isEmpty) {
+      return const [];
+    }
+
+    final results = List<int?>.filled(servers.length, null);
+    var nextIndex = 0;
+    final workerCount =
+        parallelism < servers.length ? parallelism : servers.length;
+
+    Future<void> worker() async {
+      while (true) {
+        final index = nextIndex;
+        if (index >= servers.length) {
+          return;
+        }
+        nextIndex++;
+        results[index] = await measure(servers[index]);
+      }
+    }
+
+    await Future.wait(List.generate(workerCount, (_) => worker()));
+    return results;
   }
 
   Future<int?> _measureServerPing(ServerConfig server) async {
