@@ -205,6 +205,7 @@ class XrayConfigBuilder {
         return _buildTrojan(server);
       case 'ss':
         return _buildShadowsocks(server);
+      case 'hysteria':
       case 'hysteria2':
       case 'hy2':
         return _buildHysteria2(server);

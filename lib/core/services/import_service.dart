@@ -385,12 +385,14 @@ class ImportService {
     if (ConfigParser.parseText(normalized).isNotEmpty) {
       return true;
     }
-    return normalized.startsWith('vless://') ||
-        normalized.startsWith('vmess://') ||
-        normalized.startsWith('trojan://') ||
-        normalized.startsWith('ss://') ||
-        normalized.startsWith('hysteria2://') ||
-        normalized.startsWith('hy2://');
+    final lower = normalized.toLowerCase();
+    return lower.startsWith('vless://') ||
+        lower.startsWith('vmess://') ||
+        lower.startsWith('trojan://') ||
+        lower.startsWith('ss://') ||
+        lower.startsWith('hysteria2://') ||
+        lower.startsWith('hysteria://') ||
+        lower.startsWith('hy2://');
   }
 
   /// Проверяет, можно ли импортировать текст из QR/буфера.
