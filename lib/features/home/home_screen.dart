@@ -1351,6 +1351,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<int?> _measureServerPing(ServerConfig server) async {
     final pingMethod = StorageService.getPingMethod();
     if (_isProxyPingMethod(pingMethod)) {
+      if (!_usesUdpProtocol(server)) {
+        final tcpPing = await measureTcpPing(server.host, server.port);
+        if (tcpPing != null) {
+          return tcpPing;
+        }
+      }
+
       final testUri = Uri.tryParse(StorageService.getPingTestUrl());
       if (testUri != null &&
           (testUri.scheme == 'http' || testUri.scheme == 'https')) {

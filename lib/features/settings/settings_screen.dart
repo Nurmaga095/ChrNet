@@ -2028,7 +2028,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
           Text(
             _pingMethod == StorageService.pingMethodProxyGet ||
                     _pingMethod == StorageService.pingMethodProxyHead
-                ? 'Proxy GET/HEAD поднимает временный Xray с выбранной нодой и меряет запрос к URL. Подходит для Hysteria.'
+                ? 'GET/HEAD меряет Hysteria через временный Xray, а TCP-ноды проверяет напрямую до сервера, чтобы не завышать задержку.'
                 : _pingMethod == StorageService.pingMethodIcmp
                     ? 'ICMP использует системный ping до адреса сервера. Если ICMP закрыт, TCP-ноды проверяются через TCP, а Hysteria помечается как UDP.'
                     : 'TCP проверяет подключение к порту сервера. Хорошо для VLESS/SS, но Hysteria часто отвечает fail.',
