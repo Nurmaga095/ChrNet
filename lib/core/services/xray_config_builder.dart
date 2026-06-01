@@ -17,6 +17,59 @@ class XrayConfigBuilder {
     return buildSystemProxyConfig(server);
   }
 
+  static String buildHttpPingProxyConfig(
+    ServerConfig server, {
+    required int httpPort,
+  }) {
+    final sourceOutbound = _isJsonServer(server)
+        ? _normalizeOutbounds(_parseImportedConfig(server)['outbounds'])
+            .firstWhere(
+            _isProxyOutboundWithEndpoint,
+            orElse: () => throw const FormatException(
+              'JSON config has no proxy outbound',
+            ),
+          )
+        : _buildOutbound(server);
+    final outbound = Map<String, dynamic>.from(sourceOutbound);
+    outbound['tag'] = 'proxy';
+
+    final config = <String, dynamic>{
+      'log': <String, dynamic>{'loglevel': 'warning'},
+      'dns': <String, dynamic>{'servers': _resolveDnsServers(server)},
+      'inbounds': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'tag': 'http-ping-in',
+          'listen': '127.0.0.1',
+          'port': httpPort,
+          'protocol': 'http',
+          'settings': <String, dynamic>{},
+        },
+      ],
+      'outbounds': <Map<String, dynamic>>[
+        outbound,
+        <String, dynamic>{'tag': 'direct', 'protocol': 'freedom'},
+        <String, dynamic>{'tag': 'block', 'protocol': 'blackhole'},
+      ],
+      'routing': <String, dynamic>{
+        'domainStrategy': 'IPIfNonMatch',
+        'rules': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'type': 'field',
+            'outboundTag': 'direct',
+            'ip': <String>[
+              '127.0.0.0/8',
+              '10.0.0.0/8',
+              '172.16.0.0/12',
+              '192.168.0.0/16',
+            ],
+          },
+        ],
+      },
+    };
+
+    return jsonEncode(config);
+  }
+
   static String buildSystemProxyConfig(
     ServerConfig server, {
     bool statsApi = false,
@@ -834,5 +887,21 @@ class XrayConfigBuilder {
 
   static bool _looksLikeIpAddress(String host) {
     return RegExp(r'^[\d.]+$').hasMatch(host) || host.contains(':');
+  }
+
+  static bool _isProxyOutbound(Map<String, dynamic> outbound) {
+    final protocol = outbound['protocol']?.toString().trim().toLowerCase();
+    if (protocol == null || protocol.isEmpty) return false;
+    return protocol != 'freedom' &&
+        protocol != 'blackhole' &&
+        protocol != 'dns' &&
+        protocol != 'socks' &&
+        protocol != 'http' &&
+        protocol != 'loopback';
+  }
+
+  static bool _isProxyOutboundWithEndpoint(Map<String, dynamic> outbound) {
+    return _isProxyOutbound(outbound) &&
+        _extractJsonOutboundTarget(outbound) != null;
   }
 }

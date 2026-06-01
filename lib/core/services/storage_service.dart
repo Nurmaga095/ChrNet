@@ -7,13 +7,17 @@ class StorageService {
   static const String _serversBox = 'servers_v2';
   static const String _subsBox = 'subscriptions_v2';
   static const String _settingsBox = 'settings';
-  static const int _settingsSchemaVersion = 106;
+  static const int _settingsSchemaVersion = 107;
   static const int minSubscriptionAutoUpdateHours = 1;
   static const int maxSubscriptionAutoUpdateHours = 24;
   static const int defaultSubscriptionAutoUpdateHours = 6;
   static const String pingMethodTcp = 'tcp';
   static const String pingMethodIcmp = 'icmp';
-  static const String defaultPingMethod = pingMethodTcp;
+  static const String pingMethodProxyGet = 'proxy_get';
+  static const String pingMethodProxyHead = 'proxy_head';
+  static const String defaultPingMethod = pingMethodProxyGet;
+  static const String defaultPingTestUrl =
+      'https://www.gstatic.com/generate_204';
   static const String _privacyDisclosureVersionKey =
       'privacyDisclosureAcceptedVersion';
 
@@ -74,8 +78,15 @@ class StorageService {
 
     if (storedVersion < 106) {
       final pingMethod = _settingsB.get('pingMethod') as String?;
-      if (pingMethod != pingMethodTcp && pingMethod != pingMethodIcmp) {
+      if (!_isValidPingMethod(pingMethod)) {
         await _settingsB.put('pingMethod', defaultPingMethod);
+      }
+    }
+
+    if (storedVersion < 107) {
+      final pingTestUrl = _settingsB.get('pingTestUrl') as String?;
+      if (pingTestUrl == null || pingTestUrl.trim().isEmpty) {
+        await _settingsB.put('pingTestUrl', defaultPingTestUrl);
       }
     }
 
@@ -204,7 +215,7 @@ class StorageService {
 
   static String getPingMethod() {
     final method = _settingsB.get('pingMethod') as String?;
-    if (method == pingMethodTcp || method == pingMethodIcmp) {
+    if (_isValidPingMethod(method)) {
       return method!;
     }
     return defaultPingMethod;
@@ -212,8 +223,25 @@ class StorageService {
 
   static Future<void> setPingMethod(String method) async {
     final normalizedMethod =
-        method == pingMethodIcmp ? pingMethodIcmp : pingMethodTcp;
+        _isValidPingMethod(method) ? method : defaultPingMethod;
     await _settingsB.put('pingMethod', normalizedMethod);
+  }
+
+  static String getPingTestUrl() {
+    final url = (_settingsB.get('pingTestUrl') as String?)?.trim();
+    return url == null || url.isEmpty ? defaultPingTestUrl : url;
+  }
+
+  static Future<void> setPingTestUrl(String url) async {
+    final normalizedUrl = url.trim().isEmpty ? defaultPingTestUrl : url.trim();
+    await _settingsB.put('pingTestUrl', normalizedUrl);
+  }
+
+  static bool _isValidPingMethod(String? method) {
+    return method == pingMethodTcp ||
+        method == pingMethodIcmp ||
+        method == pingMethodProxyGet ||
+        method == pingMethodProxyHead;
   }
 
   static String? getPrivacyDisclosureAcceptedVersion() =>

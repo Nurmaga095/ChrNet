@@ -1250,23 +1250,35 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
-      final results = await Future.wait(
-        targetServers.map((server) async {
-          final ping = await _measureServerPing(server);
-          if (mounted) {
-            setState(() {
-              _tcpPingByServerId[server.id] = ping;
-              _pendingPingServerIds.remove(server.id);
-              _measuredPingServerIds.add(server.id);
-            });
-          } else {
+      final results = <int?>[];
+      final pingMethod = StorageService.getPingMethod();
+      final useProxyPing = _isProxyPingMethod(pingMethod);
+
+      Future<int?> measureAndStore(ServerConfig server) async {
+        final ping = await _measureServerPing(server);
+        if (mounted) {
+          setState(() {
             _tcpPingByServerId[server.id] = ping;
             _pendingPingServerIds.remove(server.id);
             _measuredPingServerIds.add(server.id);
-          }
-          return ping;
-        }),
-      );
+          });
+        } else {
+          _tcpPingByServerId[server.id] = ping;
+          _pendingPingServerIds.remove(server.id);
+          _measuredPingServerIds.add(server.id);
+        }
+        return ping;
+      }
+
+      if (useProxyPing) {
+        for (final server in targetServers) {
+          results.add(await measureAndStore(server));
+        }
+      } else {
+        results.addAll(
+          await Future.wait(targetServers.map(measureAndStore)),
+        );
+      }
 
       final okCount = results.whereType<int>().length;
       final failCount = results.length - okCount;
@@ -1302,17 +1314,42 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<int?> _measureServerPing(ServerConfig server) {
+  Future<int?> _measureServerPing(ServerConfig server) async {
     final pingMethod = StorageService.getPingMethod();
-    if (pingMethod == StorageService.pingMethodIcmp) {
-      return measureIcmpPing(server.host).then((ping) {
-        if (ping != null || _usesUdpProtocol(server)) {
+    if (_isProxyPingMethod(pingMethod)) {
+      final testUri = Uri.tryParse(StorageService.getPingTestUrl());
+      if (testUri != null &&
+          (testUri.scheme == 'http' || testUri.scheme == 'https')) {
+        final ping = await measureProxyHttpPing(
+          server,
+          testUri: testUri,
+          method:
+              pingMethod == StorageService.pingMethodProxyHead ? 'HEAD' : 'GET',
+        );
+        if (ping != null) {
           return ping;
         }
-        return measureTcpPing(server.host, server.port);
-      });
+      }
+      if (_usesUdpProtocol(server)) {
+        return measureIcmpPing(server.host);
+      }
+      return measureTcpPing(server.host, server.port);
     }
+
+    if (pingMethod == StorageService.pingMethodIcmp) {
+      final ping = await measureIcmpPing(server.host);
+      if (ping != null || _usesUdpProtocol(server)) {
+        return ping;
+      }
+      return measureTcpPing(server.host, server.port);
+    }
+
     return measureTcpPing(server.host, server.port);
+  }
+
+  bool _isProxyPingMethod(String method) {
+    return method == StorageService.pingMethodProxyGet ||
+        method == StorageService.pingMethodProxyHead;
   }
 
   bool _usesUdpProtocol(ServerConfig server) {
