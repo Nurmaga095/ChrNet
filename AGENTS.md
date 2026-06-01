@@ -485,7 +485,7 @@ Important settings currently stored:
 - bypass LAN
 - RU routing
 - Windows VPN mode
-- ping check method (`tcp` / `icmp`)
+- ping check method (`proxy_get` / `proxy_head` / `tcp` / `icmp`) and proxy ping test URL
 - subscription auto-update interval
 - privacy disclosure accepted version
 

@@ -1104,6 +1104,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   late String _pingMethod;
   late int _subscriptionAutoUpdateHours;
   final _subscriptionAutoUpdateController = TextEditingController();
+  final _pingTestUrlController = TextEditingController();
   OverlayEntry? _topNoticeEntry;
   Timer? _topNoticeTimer;
 
@@ -1218,6 +1219,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
     _topNoticeEntry?.remove();
     _topNoticeEntry = null;
     _subscriptionAutoUpdateController.dispose();
+    _pingTestUrlController.dispose();
     super.dispose();
   }
 
@@ -1230,12 +1232,23 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
         StorageService.getSubscriptionAutoUpdateHours();
     _subscriptionAutoUpdateController.text =
         _subscriptionAutoUpdateHours.toString();
+    _pingTestUrlController.text = StorageService.getPingTestUrl();
   }
 
   String get _subscriptionAutoUpdateLabel => '$_subscriptionAutoUpdateHours ч';
 
-  String get _pingMethodLabel =>
-      _pingMethod == StorageService.pingMethodIcmp ? 'ICMP' : 'TCP';
+  String get _pingMethodLabel {
+    switch (_pingMethod) {
+      case StorageService.pingMethodProxyGet:
+        return 'Proxy GET';
+      case StorageService.pingMethodProxyHead:
+        return 'Proxy HEAD';
+      case StorageService.pingMethodIcmp:
+        return 'ICMP';
+      default:
+        return 'TCP';
+    }
+  }
 
   Future<void> _setSubscriptionAutoUpdateHours(int hours) async {
     final normalizedHours = _normalizeSubscriptionAutoUpdateHours(hours);
@@ -1284,6 +1297,29 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
       return;
     }
     _showAutoUpdateNotice('Интервал сохранён: $normalizedHours ч.');
+  }
+
+  Future<void> _savePingTestUrl() async {
+    final text = _pingTestUrlController.text.trim();
+    final nextUrl = text.isEmpty ? StorageService.defaultPingTestUrl : text;
+    final uri = Uri.tryParse(nextUrl);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      _showAutoUpdateNotice(
+        'Укажите HTTP/HTTPS URL для проверки.',
+        tint: AppColors.error,
+        icon: Icons.error_outline_rounded,
+      );
+      return;
+    }
+
+    await StorageService.setPingTestUrl(nextUrl);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _pingTestUrlController.text = nextUrl;
+    });
+    _showAutoUpdateNotice('URL проверки ping сохранён.');
   }
 
   @override
@@ -1891,16 +1927,23 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
           SegmentedButton<String>(
             segments: const [
               ButtonSegment<String>(
+                value: StorageService.pingMethodProxyGet,
+                label: Text('GET'),
+              ),
+              ButtonSegment<String>(
+                value: StorageService.pingMethodProxyHead,
+                label: Text('HEAD'),
+              ),
+              ButtonSegment<String>(
                 value: StorageService.pingMethodTcp,
-                icon: Icon(Icons.settings_ethernet_rounded, size: 18),
                 label: Text('TCP'),
               ),
               ButtonSegment<String>(
                 value: StorageService.pingMethodIcmp,
-                icon: Icon(Icons.network_ping_rounded, size: 18),
                 label: Text('ICMP'),
               ),
             ],
+            showSelectedIcon: false,
             style: ButtonStyle(
               backgroundColor: WidgetStateProperty.resolveWith((states) {
                 return states.contains(WidgetState.selected)
@@ -1936,11 +1979,59 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
               setState(() => _pingMethod = next);
             },
           ),
+          const SizedBox(height: 12),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.18)
+                  : Colors.white.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : glassBorder.withValues(alpha: 0.9),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+              child: TextField(
+                controller: _pingTestUrlController,
+                maxLines: 1,
+                minLines: 1,
+                cursorHeight: 18,
+                style: TextStyle(
+                  color: c.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                keyboardType: TextInputType.url,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _savePingTestUrl(),
+                onTapOutside: (_) => _savePingTestUrl(),
+                decoration: InputDecoration(
+                  labelText: 'Тестовый URL (via Proxy)',
+                  labelStyle: TextStyle(color: c.textSecondary, fontSize: 12),
+                  isDense: true,
+                  filled: false,
+                  fillColor: Colors.transparent,
+                  border: InputBorder.none,
+                  hintText: StorageService.defaultPingTestUrl,
+                  hintStyle: TextStyle(
+                    color: c.textDisabled,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
           const SizedBox(height: 10),
           Text(
-            _pingMethod == StorageService.pingMethodIcmp
-                ? 'ICMP использует системный ping до адреса сервера. Если ICMP закрыт, TCP-ноды проверяются через TCP, а Hysteria помечается как UDP.'
-                : 'TCP проверяет подключение к порту сервера. Хорошо для VLESS/SS, но Hysteria часто отвечает fail.',
+            _pingMethod == StorageService.pingMethodProxyGet ||
+                    _pingMethod == StorageService.pingMethodProxyHead
+                ? 'Proxy GET/HEAD поднимает временный Xray с выбранной нодой и меряет запрос к URL. Подходит для Hysteria.'
+                : _pingMethod == StorageService.pingMethodIcmp
+                    ? 'ICMP использует системный ping до адреса сервера. Если ICMP закрыт, TCP-ноды проверяются через TCP, а Hysteria помечается как UDP.'
+                    : 'TCP проверяет подключение к порту сервера. Хорошо для VLESS/SS, но Hysteria часто отвечает fail.',
             style: TextStyle(
               color: c.textSecondary,
               fontSize: 12.5,
