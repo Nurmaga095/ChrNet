@@ -28,7 +28,9 @@ class ConfigParser {
       if (lower.startsWith('ss://')) {
         return _parseShadowsocks(trimmed, subscriptionOrder: subscriptionOrder);
       }
-      if (lower.startsWith('hysteria2://') || lower.startsWith('hy2://')) {
+      if (lower.startsWith('hysteria2://') ||
+          lower.startsWith('hysteria://') ||
+          lower.startsWith('hy2://')) {
         return _parseHysteria2(trimmed, subscriptionOrder: subscriptionOrder);
       }
     } catch (_) {
@@ -237,9 +239,14 @@ class ConfigParser {
 
   // ─── HYSTERIA2 ───────────────────────────────────────────────────────────
   // hysteria2://password@host:port?sni=example.com&insecure=1#name
+  // Some subscriptions use hysteria:// for Hysteria2 links.
   static ServerConfig _parseHysteria2(String uri, {int? subscriptionOrder}) {
     final lower = uri.toLowerCase();
-    final scheme = lower.startsWith('hy2://') ? 'hy2://' : 'hysteria2://';
+    final scheme = lower.startsWith('hy2://')
+        ? 'hy2://'
+        : lower.startsWith('hysteria://')
+            ? 'hysteria://'
+            : 'hysteria2://';
     final withoutScheme = uri.substring(scheme.length);
     final hashIdx = withoutScheme.lastIndexOf('#');
     final name = hashIdx >= 0
@@ -316,7 +323,7 @@ class ConfigParser {
     }
 
     final matcher = RegExp(
-      "(?:vless|vmess|trojan|ss|hysteria2|hy2):\\/\\/[^\\s<>\"'`\\\\]+",
+      "(?:vless|vmess|trojan|ss|hysteria2|hysteria|hy2):\\/\\/[^\\s<>\"'`\\\\]+",
       caseSensitive: false,
     );
     for (final match in matcher.allMatches(decoded)) {
@@ -357,6 +364,7 @@ class ConfigParser {
         lower.startsWith('trojan://') ||
         lower.startsWith('ss://') ||
         lower.startsWith('hysteria2://') ||
+        lower.startsWith('hysteria://') ||
         lower.startsWith('hy2://');
   }
 
@@ -401,16 +409,22 @@ class ConfigParser {
       return null;
     }
 
-    final proxyOutbound = outboundsDynamic.cast<dynamic>().firstWhere(
-          (entry) => entry is Map<String, dynamic> && _isProxyOutbound(entry),
-          orElse: () => const <String, dynamic>{},
-        );
-    if (proxyOutbound is! Map<String, dynamic> || proxyOutbound.isEmpty) {
-      return null;
+    Map<String, dynamic>? proxyOutbound;
+    ({String host, int port})? endpoint;
+    for (final entry in outboundsDynamic) {
+      if (entry is! Map<String, dynamic> || !_isProxyOutbound(entry)) {
+        continue;
+      }
+      final candidateEndpoint = _extractEndpoint(entry);
+      if (candidateEndpoint == null) {
+        continue;
+      }
+      proxyOutbound = entry;
+      endpoint = candidateEndpoint;
+      break;
     }
 
-    final endpoint = _extractEndpoint(proxyOutbound);
-    if (endpoint == null) {
+    if (proxyOutbound == null || endpoint == null) {
       return null;
     }
 
@@ -525,6 +539,19 @@ class ConfigParser {
       return server['password']?.toString() ??
           server['email']?.toString() ??
           '';
+    }
+
+    final auth = settings['auth']?.toString() ?? '';
+    if (auth.isNotEmpty) {
+      return auth;
+    }
+
+    final streamSettings = outbound['streamSettings'];
+    if (streamSettings is Map<String, dynamic>) {
+      final hysteriaSettings = streamSettings['hysteriaSettings'];
+      if (hysteriaSettings is Map<String, dynamic>) {
+        return hysteriaSettings['auth']?.toString() ?? '';
+      }
     }
 
     return '';

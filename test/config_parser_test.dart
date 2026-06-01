@@ -39,7 +39,7 @@ void main() {
     final configs = ConfigParser.parseText(
       '''
       <script>
-        window.nodes = ["hysteria2:\\/\\/secret@example.org:8443?sni=edge.example.org#HY2"];
+        window.nodes = ["hysteria:\\/\\/secret@example.org:8443?sni=edge.example.org#HY2"];
       </script>
       <a href="vless://00000000-0000-0000-0000-000000000000@example.net:443?security=tls&amp;sni=example.net#VLESS"></a>
       ''',
@@ -48,5 +48,43 @@ void main() {
     expect(configs, hasLength(2));
     expect(configs.map((config) => config.protocol), contains('hysteria2'));
     expect(configs.map((config) => config.protocol), contains('vless'));
+  });
+
+  test('parses hysteria json after a service outbound', () {
+    final configs = ConfigParser.parseText(
+      jsonEncode({
+        'remarks': 'Finland',
+        'outbounds': [
+          {'tag': 'selector', 'protocol': 'selector'},
+          {
+            'tag': 'proxy',
+            'protocol': 'hysteria',
+            'settings': {
+              'version': 2,
+              'address': 'fi.example.com',
+              'port': 443,
+            },
+            'streamSettings': {
+              'network': 'hysteria',
+              'security': 'tls',
+              'hysteriaSettings': {
+                'version': 2,
+                'auth': 'secret',
+              },
+              'tlsSettings': {
+                'serverName': 'edge.example.com',
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(configs, hasLength(1));
+    expect(configs.single.protocol, 'json');
+    expect(configs.single.extras['sourceProtocol'], 'hysteria');
+    expect(configs.single.name, 'Finland');
+    expect(configs.single.host, 'fi.example.com');
+    expect(configs.single.uuid, 'secret');
   });
 }
