@@ -13,7 +13,7 @@
 </div>
 
 ## Возможности
-- Поддержка VLESS, VMess, Trojan через Xray-core
+- Поддержка VLESS, VMess, Trojan, Shadowsocks и Hysteria2 / HY2 через Xray-core
 - Импорт из буфера обмена, deep link и QR-кода
 - Обновление подписок с информацией о трафике и сроке действия
 - Список серверов с флагами стран и проверкой ping
