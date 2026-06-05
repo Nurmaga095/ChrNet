@@ -24,18 +24,19 @@ Main user-facing responsibilities:
 - connect and disconnect from VPN servers
 - display connection stats
 - manage subscriptions and server lists
-- support native VPN-related flows mainly on Android and Windows
+- support native VPN-related flows on Android and Windows
 
 Important reality:
 - this is not just a UI app
 - connection logic depends on native platform channels and generated Xray configs
 - careless edits in VPN flow can break the whole product
+- Android is now a supported working target alongside Windows, not an experimental shell
 
 ---
 
 # 2. Current Product Scope
 
-Primary practical targets:
+Supported working targets:
 - Android
 - Windows
 
@@ -502,13 +503,16 @@ then update migration logic in `StorageService`.
 # 14. Platform Notes
 
 Android:
+- current supported runtime target
 - supports native VPN service integration
 - supports quick settings config sync
 - receives deep links through method channel
 - privacy disclosure gate is relevant here
 - subscription requests include device info headers
+- verify Android changes against native platform-channel expectations and generated Xray config payloads
 
 Windows:
+- current supported runtime target
 - supports native VPN integration
 - supports tunnel/system proxy behavior
 - reads deep links from CLI args
