@@ -339,7 +339,7 @@ Google описывает эту категорию как идентифика�
 
 ### Более безопасный short description
 
-`VPN client for importing secure VLESS, VMess, Trojan, and Shadowsocks configurations.`
+`VPN client for importing secure VLESS configurations over TLS and Reality.`
 
 ### Более безопасные блоки full description
 

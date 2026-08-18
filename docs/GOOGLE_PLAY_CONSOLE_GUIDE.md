@@ -339,7 +339,7 @@ Do not claim:
 
 ### Safer short description example
 
-`VPN client for importing secure VLESS, VMess, Trojan, and Shadowsocks configurations.`
+`VPN client for importing secure VLESS configurations over TLS and Reality.`
 
 ### Safer full description blocks
 

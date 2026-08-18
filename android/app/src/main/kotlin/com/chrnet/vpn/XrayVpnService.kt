@@ -93,7 +93,7 @@ class XrayVpnService : VpnService() {
         if (!isSecureTransport(rawUri, configJson)) {
             notifyError(
                 "Для Android доступны только защищенные VPN-конфиги " +
-                    "(TLS, Reality, Trojan или Shadowsocks)."
+                    "(VLESS поверх TLS или Reality)."
             )
             return
         }
@@ -419,8 +419,6 @@ class XrayVpnService : VpnService() {
 
     private fun buildOutbound(uri: String): JSONObject = when {
         uri.startsWith("vless://")  -> buildVless(uri)
-        uri.startsWith("vmess://")  -> buildVmess(uri)
-        uri.startsWith("trojan://") -> buildTrojan(uri)
         else -> throw IllegalArgumentException("Unsupported protocol")
     }
 
@@ -448,46 +446,6 @@ class XrayVpnService : VpnService() {
                 })
             })
             put("streamSettings", buildStream(query["type"] ?: "tcp", query["security"] ?: "none", query["sni"] ?: host, query))
-        }
-    }
-
-    private fun buildVmess(uri: String): JSONObject {
-        val json = JSONObject(android.util.Base64.decode(padBase64(uri.removePrefix("vmess://")), android.util.Base64.DEFAULT).toString(Charsets.UTF_8))
-        val host = json.optString("add"); val port = json.optInt("port", 443)
-        val tls = json.optString("tls", "none")
-        return JSONObject().apply {
-            put("tag", "proxy"); put("protocol", "vmess")
-            put("settings", JSONObject().apply {
-                put("vnext", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("address", host); put("port", port)
-                        put("users", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("id", json.optString("id")); put("alterId", json.optInt("aid", 0)); put("security", "auto")
-                            })
-                        })
-                    })
-                })
-            })
-            put("streamSettings", buildStream(json.optString("net", "tcp"), if (tls == "tls") "tls" else "none", json.optString("sni", host), emptyMap()))
-        }
-    }
-
-    private fun buildTrojan(uri: String): JSONObject {
-        val s = uri.removePrefix("trojan://")
-        val hash = s.lastIndexOf('#'); val main = if (hash >= 0) s.substring(0, hash) else s
-        val at = main.indexOf('@'); val pwd = main.substring(0, at); val hp = main.substring(at + 1)
-        val q = hp.indexOf('?'); val hostPort = if (q >= 0) hp.substring(0, q) else hp
-        val query = parseQuery(if (q >= 0) hp.substring(q + 1) else "")
-        val (host, port) = splitHostPort(hostPort)
-        return JSONObject().apply {
-            put("tag", "proxy"); put("protocol", "trojan")
-            put("settings", JSONObject().apply {
-                put("servers", JSONArray().apply {
-                    put(JSONObject().apply { put("address", host); put("port", port); put("password", pwd) })
-                })
-            })
-            put("streamSettings", buildStream("tcp", "tls", query["sni"] ?: host, query))
         }
     }
 
@@ -539,8 +497,6 @@ class XrayVpnService : VpnService() {
             } else {
                 val uri = rawUri ?: return false
                 when {
-                    uri.startsWith("trojan://", ignoreCase = true) -> true
-                    uri.startsWith("ss://", ignoreCase = true) -> true
                     uri.startsWith("vless://", ignoreCase = true) -> {
                         val withoutScheme = uri.substring("vless://".length)
                         val hash = withoutScheme.lastIndexOf('#')
@@ -553,15 +509,6 @@ class XrayVpnService : VpnService() {
                             "tls", "reality" -> true
                             else -> false
                         }
-                    }
-                    uri.startsWith("vmess://", ignoreCase = true) -> {
-                        val json = JSONObject(
-                            android.util.Base64.decode(
-                                padBase64(uri.substring("vmess://".length)),
-                                android.util.Base64.DEFAULT
-                            ).toString(Charsets.UTF_8)
-                        )
-                        json.optString("tls", "none").equals("tls", ignoreCase = true)
                     }
                     else -> false
                 }
@@ -580,10 +527,7 @@ class XrayVpnService : VpnService() {
             val outbound = outbounds.optJSONObject(i) ?: continue
             when (outbound.optString("protocol").lowercase()) {
                 "freedom", "blackhole", "dns", "socks", "http", "loopback" -> continue
-                "trojan", "shadowsocks", "hysteria", "hysteria2" -> {
-                    hasProxyOutbound = true
-                }
-                "vless", "vmess" -> {
+                "vless" -> {
                     hasProxyOutbound = true
                     val streamSettings = outbound.optJSONObject("streamSettings")
                     val security = streamSettings?.optString("security")?.lowercase()
@@ -604,7 +548,6 @@ class XrayVpnService : VpnService() {
         return if (i < 0) hp to 443 else hp.substring(0, i) to (hp.substring(i + 1).toIntOrNull() ?: 443)
     }
 
-    private fun padBase64(s: String): String { val r = s.length % 4; return if (r == 0) s else s + "=".repeat(4 - r) }
 
     // ─── Flutter notifications ────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/services/import_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../ui/theme/app_theme.dart';
+import '../../ui/widgets/app_card.dart';
 
 class AddServerSheet extends StatelessWidget {
   final VoidCallback onServersAdded;
@@ -14,57 +15,35 @@ class AddServerSheet extends StatelessWidget {
     final c = AppColors.of(context);
     final supportsQrScan =
         Theme.of(context).platform == TargetPlatform.android ||
-        Theme.of(context).platform == TargetPlatform.iOS;
-    return Container(
-      decoration: BoxDecoration(
-        color: c.cardBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
+            Theme.of(context).platform == TargetPlatform.iOS;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.page,
+          0,
+          AppSpacing.page,
+          AppSpacing.lg,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Handle
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12, bottom: 20),
-              decoration: BoxDecoration(
-                color: c.borderColor,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-
             Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
               child: Text(
                 'Добавить локацию',
-                style: TextStyle(
-                  color: c.textPrimary,
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                ),
+                textAlign: TextAlign.center,
+                style: AppText.heading.copyWith(color: c.textPrimary),
               ),
             ),
-
-            // ── Подписка (URL) ────────────────────────────────────────────
             _ImportOption(
               icon: Icons.link_rounded,
               title: 'Ссылка подписки',
               subtitle: 'Загрузить все локации по URL подписки',
               onTap: () => _showSubscriptionDialog(context),
             ),
-
-            Divider(indent: 16, endIndent: 16, color: c.borderColor),
-
-            // ── Буфер обмена ──────────────────────────────────────────────
+            const SizedBox(height: AppSpacing.sm),
             _ImportOption(
               icon: Icons.content_paste_rounded,
               title: 'Из буфера обмена',
@@ -78,11 +57,8 @@ class AddServerSheet extends StatelessWidget {
                 _handleResult(messenger, result);
               },
             ),
-
-            Divider(indent: 16, endIndent: 16, color: c.borderColor),
-
             if (supportsQrScan) ...[
-              // ── QR Code ─────────────────────────────────────────────────
+              const SizedBox(height: AppSpacing.sm),
               _ImportOption(
                 icon: Icons.qr_code_scanner_rounded,
                 title: 'Сканировать QR-код',
@@ -96,9 +72,8 @@ class AddServerSheet extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (_) => QrScanScreen(
                         onScanned: (uri) async {
-                          final result = await ImportService.importFromText(
-                            uri,
-                          );
+                          final result =
+                              await ImportService.importFromText(uri);
                           _handleResult(messenger, result);
                         },
                       ),
@@ -106,18 +81,14 @@ class AddServerSheet extends StatelessWidget {
                   );
                 },
               ),
-              Divider(indent: 16, endIndent: 16, color: c.borderColor),
             ],
-
-            // ── Ввод URI вручную ──────────────────────────────────────────
+            const SizedBox(height: AppSpacing.sm),
             _ImportOption(
               icon: Icons.edit_rounded,
               title: 'Ввести URI вручную',
               subtitle: 'Вставить URI или Xray JSON вручную',
               onTap: () => _showUriInputDialog(context),
             ),
-
-            const SizedBox(height: 12),
           ],
         ),
       ),
@@ -129,21 +100,11 @@ class AddServerSheet extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) {
-        final c = AppColors.of(ctx);
         return AlertDialog(
-          backgroundColor: c.cardBackground,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: c.borderColor),
-          ),
-          title: Text(
-            'Ссылка подписки',
-            style: TextStyle(color: c.textPrimary, fontSize: 16),
-          ),
+          title: const Text('Ссылка подписки'),
           content: TextField(
             controller: controller,
             autofocus: true,
-            style: TextStyle(color: c.textPrimary, fontSize: 13),
             decoration: const InputDecoration(hintText: 'https://...'),
             maxLines: 2,
             minLines: 1,
@@ -151,7 +112,10 @@ class AddServerSheet extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: Text('Отмена', style: TextStyle(color: c.textSecondary)),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.of(ctx).textSecondary,
+              ),
+              child: const Text('Отмена'),
             ),
             TextButton(
               onPressed: () async {
@@ -163,15 +127,11 @@ class AddServerSheet extends StatelessWidget {
                 Navigator.pop(ctx); // close dialog
                 nav.pop(); // close bottom sheet
                 _showSnack(messenger, 'Загрузка подписки...', isError: false);
-                final result = await ImportService.importFromSubscriptionUrl(
-                  url,
-                );
+                final result =
+                    await ImportService.importFromSubscriptionUrl(url);
                 _handleResult(messenger, result);
               },
-              child: const Text(
-                'Загрузить',
-                style: TextStyle(color: AppColors.accent),
-              ),
+              child: const Text('Загрузить'),
             ),
           ],
         );
@@ -184,23 +144,13 @@ class AddServerSheet extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) {
-        final c = AppColors.of(ctx);
         return AlertDialog(
-          backgroundColor: c.cardBackground,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: c.borderColor),
-          ),
-          title: Text(
-            'Введите ссылку',
-            style: TextStyle(color: c.textPrimary, fontSize: 16),
-          ),
+          title: const Text('Введите ссылку'),
           content: TextField(
             controller: controller,
             autofocus: true,
-            style: TextStyle(color: c.textPrimary, fontSize: 13),
             decoration: const InputDecoration(
-              hintText: 'vless://... или vmess://... или JSON...',
+              hintText: 'vless://... или JSON-конфиг',
             ),
             maxLines: 4,
             minLines: 1,
@@ -208,7 +158,10 @@ class AddServerSheet extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: Text('Отмена', style: TextStyle(color: c.textSecondary)),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.of(ctx).textSecondary,
+              ),
+              child: const Text('Отмена'),
             ),
             TextButton(
               onPressed: () async {
@@ -221,10 +174,7 @@ class AddServerSheet extends StatelessWidget {
                 final result = await ImportService.importFromUri(text);
                 _handleResult(messenger, result);
               },
-              child: const Text(
-                'Добавить',
-                style: TextStyle(color: AppColors.accent),
-              ),
+              child: const Text('Добавить'),
             ),
           ],
         );
@@ -270,8 +220,8 @@ class AddServerSheet extends StatelessWidget {
         content: Text(message),
         backgroundColor: isError ? AppColors.error : AppColors.connected,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
+        margin: const EdgeInsets.all(AppSpacing.lg),
       ),
     );
   }
@@ -293,32 +243,39 @@ class _ImportOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    return ListTile(
+    return AppCard(
+      muted: true,
       onTap: onTap,
-      leading: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: AppColors.accent.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, color: AppColors.accent, size: 22),
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: c.textPrimary,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(color: c.textSecondary, fontSize: 12),
-      ),
-      trailing: Icon(
-        Icons.chevron_right_rounded,
-        color: c.textSecondary,
-        size: 20,
+      borderRadius: AppRadius.mdAll,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        children: [
+          AppIconPlate(icon: icon, color: c.accentText),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppText.body.copyWith(
+                    color: c.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: AppText.caption.copyWith(
+                    color: c.textSecondary,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: c.textDisabled, size: 20),
+        ],
       ),
     );
   }
@@ -339,6 +296,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
     formats: [BarcodeFormat.qrCode],
   );
   bool _scanned = false;
+  bool _torchOn = false;
   DateTime? _lastUnsupportedNoticeAt;
 
   @override
@@ -351,17 +309,25 @@ class _QrScanScreenState extends State<QrScanScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Сканировать QR'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.flash_on_rounded),
-            onPressed: () => _scanner.toggleTorch(),
+            icon: Icon(
+              _torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+            ),
+            onPressed: () async {
+              await _scanner.toggleTorch();
+              if (mounted) setState(() => _torchOn = !_torchOn);
+            },
           ),
         ],
       ),
       body: Stack(
+        fit: StackFit.expand,
         children: [
           MobileScanner(
             controller: _scanner,
@@ -414,26 +380,26 @@ class _QrScanScreenState extends State<QrScanScreen> {
             },
           ),
 
-          // Overlay
+          // Viewfinder
           Center(
             child: Container(
               width: 240,
               height: 240,
               decoration: BoxDecoration(
-                border: Border.all(color: AppColors.accent, width: 2),
-                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white, width: 2.5),
+                borderRadius: BorderRadius.circular(AppRadius.xl),
               ),
             ),
           ),
 
-          const Positioned(
-            bottom: 60,
-            left: 0,
-            right: 0,
+          Positioned(
+            bottom: 72,
+            left: AppSpacing.xl,
+            right: AppSpacing.xl,
             child: Text(
               'Направьте камеру на QR-код конфигурации',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+              style: AppText.body.copyWith(color: Colors.white70),
             ),
           ),
         ],
@@ -453,14 +419,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
-      SnackBar(
-        content: const Text(
+      const SnackBar(
+        content: Text(
           'QR-код не содержит VPN-конфиг или ссылку подписки',
         ),
         backgroundColor: AppColors.error,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
+        margin: EdgeInsets.all(AppSpacing.lg),
       ),
     );
   }

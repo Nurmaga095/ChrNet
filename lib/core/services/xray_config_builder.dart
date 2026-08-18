@@ -245,6 +245,44 @@ class XrayConfigBuilder {
     return jsonEncode(config);
   }
 
+  static String buildAndroidVpnConfig(
+    ServerConfig server, {
+    bool statsApi = false,
+    bool enableRuRouting = true,
+  }) {
+    final decoded = jsonDecode(buildTunnelConfig(
+      server,
+      statsApi: statsApi,
+      enableRuRouting: enableRuRouting,
+    ));
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Tunnel config must be an object');
+    }
+
+    final config = Map<String, dynamic>.from(decoded);
+    final inbounds = config['inbounds'];
+    if (inbounds is List) {
+      for (final inbound in inbounds.whereType<Map>()) {
+        if ((inbound['protocol']?.toString() ?? '') != 'tun') continue;
+        inbound['tag'] = 'tun';
+        inbound['settings'] = <String, dynamic>{
+          'name': 'xray0',
+          'MTU': 1500,
+          'userLevel': 8,
+        };
+        inbound['sniffing'] = <String, dynamic>{
+          'enabled': true,
+          'routeOnly': true,
+          'destOverride': <String>['http', 'tls', 'quic'],
+        };
+      }
+    }
+
+    _replaceInboundTag(config, from: 'tun-in', to: 'tun');
+    _ensureTunUserLevelPolicy(config);
+    return jsonEncode(config);
+  }
+
   static Map<String, dynamic> _buildOutbound(ServerConfig server) {
     final protocol = server.protocol.toLowerCase();
     switch (protocol) {
@@ -252,19 +290,50 @@ class XrayConfigBuilder {
         throw UnsupportedError('JSON configs are handled at a higher level');
       case 'vless':
         return _buildVless(server);
-      case 'vmess':
-        return _buildVmess(server);
-      case 'trojan':
-        return _buildTrojan(server);
-      case 'ss':
-        return _buildShadowsocks(server);
-      case 'hysteria':
-      case 'hysteria2':
-      case 'hy2':
-        return _buildHysteria2(server);
       default:
-        throw UnsupportedError('Unsupported protocol: ${server.protocol}');
+        // Servers saved before the app narrowed to VLESS still sit in storage.
+        // They reach this point only if the user taps one, and the message is
+        // what the UI shows, so name the protocol rather than failing blankly.
+        throw UnsupportedError(
+          'Протокол ${server.protocol.toUpperCase()} больше не поддерживается',
+        );
     }
+  }
+
+  static void _replaceInboundTag(
+    dynamic value, {
+    required String from,
+    required String to,
+  }) {
+    if (value is Map) {
+      final inboundTag = value['inboundTag'];
+      if (inboundTag == from) {
+        value['inboundTag'] = to;
+      } else if (inboundTag is List) {
+        value['inboundTag'] =
+            inboundTag.map((tag) => tag == from ? to : tag).toList();
+      }
+      for (final child in value.values) {
+        _replaceInboundTag(child, from: from, to: to);
+      }
+    } else if (value is List) {
+      for (final child in value) {
+        _replaceInboundTag(child, from: from, to: to);
+      }
+    }
+  }
+
+  static void _ensureTunUserLevelPolicy(Map<String, dynamic> config) {
+    final policy = _normalizeMap(config['policy']) ?? <String, dynamic>{};
+    final levels = _normalizeMap(policy['levels']) ?? <String, dynamic>{};
+    levels['8'] = <String, dynamic>{
+      'handshake': 4,
+      'connIdle': 300,
+      'uplinkOnly': 1,
+      'downlinkOnly': 1,
+    };
+    policy['levels'] = levels;
+    config['policy'] = policy;
   }
 
   static Map<String, dynamic> _buildVless(ServerConfig server) {
@@ -295,197 +364,6 @@ class XrayConfigBuilder {
         extras: extras,
       ),
     };
-  }
-
-  static Map<String, dynamic> _buildVmess(ServerConfig server) {
-    final extras = server.extras;
-    final alterId = int.tryParse(extras['aid'] ?? '') ?? 0;
-    return <String, dynamic>{
-      'tag': 'proxy',
-      'protocol': 'vmess',
-      'settings': <String, dynamic>{
-        'vnext': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'address': server.host,
-            'port': server.port,
-            'users': <Map<String, dynamic>>[
-              <String, dynamic>{
-                'id': server.uuid,
-                'alterId': alterId,
-                'security': 'auto',
-              },
-            ],
-          },
-        ],
-      },
-      'streamSettings': _buildStream(
-        network: extras['type'] ?? 'tcp',
-        security: extras['security'] ?? 'none',
-        sni: extras['sni'] ?? server.host,
-        extras: extras,
-      ),
-    };
-  }
-
-  static Map<String, dynamic> _buildTrojan(ServerConfig server) {
-    final extras = server.extras;
-    return <String, dynamic>{
-      'tag': 'proxy',
-      'protocol': 'trojan',
-      'settings': <String, dynamic>{
-        'servers': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'address': server.host,
-            'port': server.port,
-            'password': server.uuid,
-          },
-        ],
-      },
-      'streamSettings': _buildStream(
-        network: extras['type'] ?? 'tcp',
-        security: extras['security'] ?? 'tls',
-        sni: extras['sni'] ?? server.host,
-        extras: extras,
-      ),
-    };
-  }
-
-  static Map<String, dynamic> _buildShadowsocks(ServerConfig server) {
-    return <String, dynamic>{
-      'tag': 'proxy',
-      'protocol': 'shadowsocks',
-      'settings': <String, dynamic>{
-        'servers': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'address': server.host,
-            'port': server.port,
-            'method': server.extras['method'] ?? 'aes-128-gcm',
-            'password': server.uuid,
-          },
-        ],
-      },
-    };
-  }
-
-  static Map<String, dynamic> _buildHysteria2(ServerConfig server) {
-    final extras = server.extras;
-    final sni = _firstNonEmpty(
-          extras['sni'],
-          extras['peer'],
-          extras['serverName'],
-        ) ??
-        server.host;
-    final hysteriaSettings = <String, dynamic>{
-      'version': 2,
-      'auth': server.uuid,
-    };
-    final udpIdleTimeout = _parseIntExtra(
-      extras,
-      const ['udpIdleTimeout', 'idleTimeout'],
-    );
-    if (udpIdleTimeout != null) {
-      hysteriaSettings['udpIdleTimeout'] = udpIdleTimeout;
-    }
-
-    final tlsSettings = <String, dynamic>{
-      'serverName': sni,
-      'allowInsecure': _isTruthy(extras['insecure']),
-      if ((extras['alpn'] ?? '').isNotEmpty)
-        'alpn': extras['alpn']!.split(',').map((v) => v.trim()).toList(),
-    };
-
-    final streamSettings = <String, dynamic>{
-      'network': 'hysteria',
-      'security': 'tls',
-      'hysteriaSettings': hysteriaSettings,
-      'tlsSettings': tlsSettings,
-    };
-
-    final finalMask = _buildHysteriaFinalMask(extras);
-    if (finalMask.isNotEmpty) {
-      streamSettings['finalmask'] = finalMask;
-    }
-
-    return <String, dynamic>{
-      'tag': 'proxy',
-      'protocol': 'hysteria',
-      'settings': <String, dynamic>{
-        'version': 2,
-        'address': server.host,
-        'port': server.port,
-      },
-      'streamSettings': streamSettings,
-    };
-  }
-
-  static Map<String, dynamic> _buildHysteriaFinalMask(
-    Map<String, String> extras,
-  ) {
-    final finalMask = <String, dynamic>{};
-    final obfs = extras['obfs']?.trim().toLowerCase();
-    final obfsPassword = _firstNonEmpty(
-      extras['obfs-password'],
-      extras['obfsPassword'],
-    );
-    if (obfs == 'salamander' && obfsPassword != null) {
-      finalMask['udp'] = <Map<String, dynamic>>[
-        <String, dynamic>{
-          'type': 'salamander',
-          'settings': <String, dynamic>{'password': obfsPassword},
-        },
-      ];
-    }
-
-    final hopPorts = _firstNonEmpty(
-      extras['mport'],
-      extras['ports'],
-      extras['portHopping'],
-    );
-    if (hopPorts != null) {
-      final quicParams = <String, dynamic>{
-        'udpHop': <String, dynamic>{
-          'ports': hopPorts,
-          if (_firstNonEmpty(extras['hopInterval'], extras['hop-interval'])
-              case final interval?)
-            'interval': interval,
-        },
-      };
-      finalMask['quicParams'] = quicParams;
-    }
-
-    return finalMask;
-  }
-
-  static String? _firstNonEmpty(String? first,
-      [String? second, String? third]) {
-    for (final value in [first, second, third]) {
-      final trimmed = value?.trim();
-      if (trimmed != null && trimmed.isNotEmpty) {
-        return trimmed;
-      }
-    }
-    return null;
-  }
-
-  static int? _parseIntExtra(Map<String, String> extras, List<String> keys) {
-    for (final key in keys) {
-      final value = extras[key]?.trim();
-      if (value == null || value.isEmpty) continue;
-      final parsed = int.tryParse(value);
-      if (parsed != null) return parsed;
-    }
-    return null;
-  }
-
-  static bool _isTruthy(String? value) {
-    switch (value?.trim().toLowerCase()) {
-      case '1':
-      case 'true':
-      case 'yes':
-        return true;
-      default:
-        return false;
-    }
   }
 
   static const int _statsApiPort = 10853;
@@ -733,13 +611,164 @@ class XrayConfigBuilder {
         .toList();
   }
 
+  /// Geo categories present in the trimmed datasets we ship.
+  ///
+  /// Keep in sync with the generation commands in tools/geo/README.md. Anything
+  /// outside these sets is unresolvable at runtime and must be stripped before
+  /// the config reaches the core.
+  static const Set<String> shippedGeoIpCategories = {'ru', 'private'};
+
+  static const Set<String> shippedGeoSiteCategories = {
+    'category-ru',
+    'category-gov-ru',
+    'category-media-ru',
+    'category-ecommerce-ru',
+    'category-entertainment-ru',
+    'category-retail-ru',
+    'category-ads-all',
+    'category-antivirus',
+    'private',
+    'yandex',
+    'vk',
+    'mailru',
+    'mailru-group',
+    'rutracker',
+    'rutube',
+    'telegram',
+  };
+
+  /// Whether the core can resolve `geoip:x` / `geosite:x` as written.
+  static bool _isResolvableGeoToken(String token) {
+    String bare(String value) =>
+        value.startsWith('!') ? value.substring(1) : value;
+
+    // `geosite:x@attr` narrows a category by attribute; the category still has
+    // to be present, and the attribute does not change which file is loaded.
+    if (token.startsWith('geosite:')) {
+      final category = bare(token.substring('geosite:'.length)).split('@').first;
+      return shippedGeoSiteCategories.contains(category);
+    }
+    if (token.startsWith('geoip:')) {
+      // `geoip:!ru` negates a category but still needs it loaded.
+      return shippedGeoIpCategories.contains(bare(token.substring('geoip:'.length)));
+    }
+    return true;
+  }
+
+  /// Drops geo references the trimmed datasets cannot resolve.
+  ///
+  /// Only user-imported raw JSON can contain them — everything this class
+  /// generates itself stays within [shippedGeoIpCategories]. Xray refuses to
+  /// start when a rule names a missing category, so an untouched import would
+  /// mean "cannot connect at all". Dropping the reference instead costs the
+  /// user that one rule: the affected traffic falls through to the config's
+  /// default route, which for a VPN config means through the tunnel rather
+  /// than around it.
+  static List<Map<String, dynamic>> _stripUnresolvableGeoRules(
+    List<Map<String, dynamic>> rules,
+  ) {
+    const matcherKeys = ['ip', 'domain'];
+    final kept = <Map<String, dynamic>>[];
+
+    for (final rule in rules) {
+      final next = Map<String, dynamic>.from(rule);
+      var hadMatcher = false;
+      var lostEveryMatcher = true;
+
+      for (final key in matcherKeys) {
+        final values = next[key];
+        if (values is! List) continue;
+        hadMatcher = true;
+
+        final survivors = values
+            .where((value) => _isResolvableGeoToken(
+                  value?.toString().trim().toLowerCase() ?? '',
+                ))
+            .toList();
+
+        if (survivors.isEmpty) {
+          next.remove(key);
+        } else {
+          next[key] = survivors;
+          lostEveryMatcher = false;
+        }
+      }
+
+      // A rule that only ever matched on geo data now matches everything, which
+      // would hijack all traffic. Drop it rather than let it widen.
+      if (hadMatcher && lostEveryMatcher) continue;
+      kept.add(next);
+    }
+
+    return kept;
+  }
+
+  /// Strips unresolvable geo references from an imported `dns` block.
+  ///
+  /// This is a separate walk from [_stripUnresolvableGeoRules] because Xray
+  /// builds DNS before routing and fails there first: a config carrying
+  /// `geosite:category-ru` under `dns.servers[].domains` dies with
+  /// "failed to build DNS configuration", never reaching the routing rules.
+  static Map<String, dynamic> _stripUnresolvableGeoDns(
+    Map<String, dynamic> dns,
+  ) {
+    final servers = dns['servers'];
+    if (servers is! List) return dns;
+
+    final kept = <dynamic>[];
+    for (final server in servers) {
+      // Plain string entries ("1.1.1.1") carry no geo references.
+      if (server is! Map) {
+        kept.add(server);
+        continue;
+      }
+
+      final next = Map<String, dynamic>.from(server);
+      var droppedEveryDomain = false;
+
+      for (final key in const ['domains', 'expectIPs', 'expectIps']) {
+        final values = next[key];
+        if (values is! List) continue;
+
+        final survivors = values
+            .where((value) => _isResolvableGeoToken(
+                  value?.toString().trim().toLowerCase() ?? '',
+                ))
+            .toList();
+
+        if (survivors.length == values.length) continue;
+        if (survivors.isEmpty) {
+          next.remove(key);
+          // A server scoped to a domain list becomes a catch-all once that list
+          // is gone, which would silently take over all name resolution.
+          if (key == 'domains') droppedEveryDomain = true;
+        } else {
+          next[key] = survivors;
+        }
+      }
+
+      if (droppedEveryDomain) continue;
+      kept.add(next);
+    }
+
+    // Never hand the core an empty server list — it would have no resolver.
+    if (kept.isEmpty) {
+      return <String, dynamic>{
+        ...dns,
+        'servers': List<String>.from(_fallbackDnsServers),
+      };
+    }
+
+    return <String, dynamic>{...dns, 'servers': kept};
+  }
+
   static Map<String, dynamic> _resolveImportedDns(
     Map<String, dynamic> imported,
     ServerConfig server,
   ) {
     final importedDns = _normalizeMap(imported['dns']);
     if (importedDns != null) {
-      return importedDns;
+      return _stripUnresolvableGeoDns(importedDns);
     }
 
     return <String, dynamic>{'servers': _resolveDnsServers(server)};
@@ -809,7 +838,7 @@ class XrayConfigBuilder {
         },
       if (enableRuRouting)
         ..._buildRuDirectRoutingRules(inboundTag: tunnelMode ? 'tun-in' : null),
-      ...importedRules,
+      ..._stripUnresolvableGeoRules(importedRules),
     ];
 
     return <String, dynamic>{

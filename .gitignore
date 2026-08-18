@@ -48,3 +48,25 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/key.properties
+
+# ─── Signing keys and credentials — must never be committed ─────────────────
+# The GitHub remote for this project is public. Anything committed here is
+# published the moment it is pushed, and deleting it afterwards does not
+# un-publish it: the file stays readable in the repository history and in every
+# clone anyone already made. A leaked upload key also cannot simply be rotated
+# on Google Play without contacting support.
+#
+# The rules are written per file type rather than per folder, so a key dropped
+# somewhere new is still covered.
+*.jks
+*.keystore
+*.p12
+*.pfx
+key.properties
+upload_certificate.pem
+upload-key-credentials.txt
+
+# The reset bundle and the archive of it, both by name and unpacked.
+/chrnet-upload-key-reset/
+/chrnet-upload-key/
+/chrnet-upload-key-reset.rar

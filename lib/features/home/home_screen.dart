@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:country_flags/country_flags.dart';
+
 import 'package:flutter/foundation.dart';
-import '../../core/utils/tcp_ping.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import '../../core/models/server_config.dart';
 import '../../core/models/subscription.dart';
 import '../../core/models/vpn_stats.dart';
@@ -14,13 +14,15 @@ import '../../core/services/import_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/subscription_service.dart';
 import '../../core/services/vpn_provider.dart';
+import '../../core/utils/tcp_ping.dart';
 import '../../ui/theme/app_theme.dart';
-import '../../ui/widgets/liquid_bottom_bar.dart';
+import '../../ui/widgets/app_card.dart';
+import '../../ui/widgets/app_nav_bar.dart';
+import '../../ui/widgets/country_flag_icon.dart';
 import '../../ui/widgets/power_button.dart';
 import '../../ui/widgets/stats_card.dart';
 import '../servers/add_server_sheet.dart' show QrScanScreen;
 import '../settings/settings_screen.dart';
-import '../../ui/widgets/glass_card.dart';
 
 enum _TopNoticeType { info, success, error }
 
@@ -32,7 +34,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const double _heroScale = 0.7;
   static const int _proxyPingParallelism = 4;
   List<ServerConfig> _servers = [];
   List<Subscription> _subscriptions = [];
@@ -165,268 +166,365 @@ class _HomeScreenState extends State<HomeScreen> {
     _measuredPingServerIds.removeWhere((id) => !activeServerIds.contains(id));
   }
 
+  /// The server the connect button will actually use: the explicit selection,
+  /// or the first one in the list when nothing has been picked yet.
+  ServerConfig? _effectiveServer(VpnProvider vpn) {
+    final selected = vpn.selectedServer;
+    if (selected != null) {
+      final match = _servers.where((s) => s.id == selected.id).firstOrNull;
+      if (match != null) return match;
+    }
+    return _servers.firstOrNull;
+  }
+
+  // ─── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final c = AppColors.of(context);
     return Consumer<VpnProvider>(
       builder: (context, vpn, _) {
-        final viewportWidth = MediaQuery.sizeOf(context).width;
-        final isMobileTopInsetPlatform =
-            Theme.of(context).platform == TargetPlatform.android ||
-                Theme.of(context).platform == TargetPlatform.iOS;
-        final supportsQrScan =
-            Theme.of(context).platform == TargetPlatform.android ||
-                Theme.of(context).platform == TargetPlatform.iOS;
-        final isTablet = viewportWidth >= 700;
-        final isWideTablet = viewportWidth >= 960;
-        final heroScale = isWideTablet
-            ? 0.86
-            : isTablet
-                ? 0.78
-                : _heroScale;
-        final contentMaxWidth = isWideTablet ? 1180.0 : 760.0;
-        final showSubscriptionSiteButton =
-            kIsWeb || defaultTargetPlatform != TargetPlatform.android;
+        final width = MediaQuery.sizeOf(context).width;
+        final isWide = width >= 960;
+
         return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Stack(
-            children: [
-              SafeArea(
-                bottom: false,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                    child: isWideTablet
-                        ? _buildWideLayout(
-                            context,
-                            vpn,
-                            scale: heroScale,
-                            isMobileTopInsetPlatform: isMobileTopInsetPlatform,
-                          )
-                        : _buildCompactLayout(
-                            context,
-                            vpn,
-                            scale: heroScale,
-                            isMobileTopInsetPlatform: isMobileTopInsetPlatform,
-                          ),
-                  ),
-                ),
-              ), // ListView
-              // ── Floating action buttons (top-right) ──────────────────────
-              Positioned(
-                top: !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-                    ? 10
-                    : 0,
-                right: 14,
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                        top: !kIsWeb &&
-                                defaultTargetPlatform == TargetPlatform.windows
-                            ? 34
-                            : 0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // ── + Добавить ──────────────────────────────────────────
-                        TooltipVisibility(
-                          visible: false,
-                          child: PopupMenuButton<String>(
-                            tooltip: '',
-                            padding: EdgeInsets.zero,
-                            color: c.cardBackground,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              side: BorderSide(color: c.borderColor),
-                            ),
-                            offset: const Offset(0, 48),
-                            onSelected: (value) async {
-                              if (value == 'clipboard') {
-                                final messenger = ScaffoldMessenger.of(context);
-                                final result =
-                                    await ImportService.importFromClipboard();
-                                _handleImportResult(messenger, result);
-                              } else if (value == 'qr' && supportsQrScan) {
-                                if (!context.mounted) return;
-                                final messenger = ScaffoldMessenger.of(context);
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => QrScanScreen(
-                                      onScanned: (uri) async {
-                                        final result =
-                                            await ImportService.importFromText(
-                                                uri);
-                                        _handleImportResult(messenger, result);
-                                      },
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              PopupMenuItem<String>(
-                                value: 'clipboard',
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.content_paste_rounded,
-                                        color: AppColors.accent, size: 20),
-                                    const SizedBox(width: 12),
-                                    Text('Из буфера обмена',
-                                        style: TextStyle(color: c.textPrimary)),
-                                  ],
-                                ),
-                              ),
-                              if (supportsQrScan)
-                                PopupMenuItem<String>(
-                                  value: 'qr',
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.qr_code_scanner_rounded,
-                                          color: AppColors.accent, size: 20),
-                                      const SizedBox(width: 12),
-                                      Text('Сканировать QR-код',
-                                          style:
-                                              TextStyle(color: c.textPrimary)),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                            child: const _AppBarButton(
-                              icon: Icons.add_rounded,
-                              iconSize: 22,
-                            ),
-                          ),
-                        ),
-                        if (showSubscriptionSiteButton) ...[
-                          const SizedBox(height: 8),
-                          GestureDetector(
-                            onTap: _openSubscriptionSite,
-                            child: const _AppBarButton(
-                              icon: Icons.manage_accounts_rounded,
-                              iconSize: 18,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
+          body: SafeArea(
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: isWide ? 1120 : 640),
+                child: isWide
+                    ? _buildWideLayout(context, vpn)
+                    : _buildCompactLayout(context, vpn),
               ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: LiquidBottomBar(
-                  activeTab: LiquidBottomBarTab.connection,
-                  onConnectionTap: () {},
-                  onSettingsTap: _openSettings,
-                ),
-              ),
-            ],
-          ), // Stack
+            ),
+          ),
+          bottomNavigationBar: AppNavBar(
+            activeTab: AppNavTab.connection,
+            onConnectionTap: () {},
+            onSettingsTap: _openSettings,
+          ),
         );
       },
     );
   }
 
-  Widget _buildCompactLayout(
-    BuildContext context,
-    VpnProvider vpn, {
-    required double scale,
-    required bool isMobileTopInsetPlatform,
-  }) {
-    final spacing = 10 * scale;
+  Widget _buildCompactLayout(BuildContext context, VpnProvider vpn) {
+    final height = MediaQuery.sizeOf(context).height;
+    // Shrink the dial on short screens so the server list still shows above the
+    // fold instead of being pushed off it.
+    final buttonSize = height < 700 ? 140.0 : 168.0;
+
     return ListView(
-      padding: const EdgeInsets.only(left: 20, right: 20, bottom: 72),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.page,
+        AppSpacing.sm,
+        AppSpacing.page,
+        AppSpacing.xxl,
+      ),
       children: [
-        SizedBox(height: scale * (isMobileTopInsetPlatform ? 30 : 16)),
-        _buildHeroSection(context, vpn, scale: scale),
-        SizedBox(height: spacing),
-        ..._buildSubscriptionSections(context, vpn),
-        if (_subscriptions.isEmpty) ...[
-          const SizedBox(height: 16),
-          _buildImportButton(context),
-        ],
-        const SizedBox(height: 24),
+        _buildHeader(context),
+        const SizedBox(height: AppSpacing.lg),
+        _buildHero(context, vpn, buttonSize: buttonSize),
+        const SizedBox(height: AppSpacing.xl),
+        ..._buildLibrary(context, vpn),
       ],
     );
   }
 
-  Widget _buildWideLayout(
+  Widget _buildWideLayout(BuildContext context, VpnProvider vpn) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xxl,
+        AppSpacing.sm,
+        AppSpacing.xxl,
+        AppSpacing.xxl,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(context),
+          const SizedBox(height: AppSpacing.xl),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 360,
+                child: _buildHero(context, vpn, buttonSize: 184),
+              ),
+              const SizedBox(width: AppSpacing.xl),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: _buildLibrary(context, vpn),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Header ───────────────────────────────────────────────────────────────
+
+  Widget _buildHeader(BuildContext context) {
+    final c = AppColors.of(context);
+    final supportsQrScan =
+        Theme.of(context).platform == TargetPlatform.android ||
+            Theme.of(context).platform == TargetPlatform.iOS;
+    final showSubscriptionSiteButton =
+        kIsWeb || defaultTargetPlatform != TargetPlatform.android;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            'ChrNet',
+            style: AppText.title.copyWith(color: c.textPrimary),
+          ),
+        ),
+        if (showSubscriptionSiteButton)
+          AppIconButton(
+            icon: Icons.manage_accounts_outlined,
+            tooltip: 'Личный кабинет',
+            onTap: _openSubscriptionSite,
+          ),
+        PopupMenuButton<String>(
+          tooltip: 'Добавить конфигурацию',
+          position: PopupMenuPosition.under,
+          onSelected: (value) async {
+            if (value == 'clipboard') {
+              final messenger = ScaffoldMessenger.of(context);
+              final result = await ImportService.importFromClipboard();
+              _handleImportResult(messenger, result);
+            } else if (value == 'qr' && supportsQrScan) {
+              if (!context.mounted) return;
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => QrScanScreen(
+                    onScanned: (uri) async {
+                      final result = await ImportService.importFromText(uri);
+                      _handleImportResult(messenger, result);
+                    },
+                  ),
+                ),
+              );
+            }
+          },
+          itemBuilder: (context) => [
+            _menuItem(
+              context,
+              value: 'clipboard',
+              icon: Icons.content_paste_rounded,
+              label: 'Из буфера обмена',
+            ),
+            if (supportsQrScan)
+              _menuItem(
+                context,
+                value: 'qr',
+                icon: Icons.qr_code_scanner_rounded,
+                label: 'Сканировать QR-код',
+              ),
+          ],
+          child: Container(
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            decoration: BoxDecoration(
+              color: c.accentText,
+              borderRadius: AppRadius.mdAll,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.add_rounded,
+                  size: 19,
+                  color: c.isDark ? const Color(0xFF04211E) : Colors.white,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  'Добавить',
+                  style: AppText.body.copyWith(
+                    color: c.isDark ? const Color(0xFF04211E) : Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(
+    BuildContext context, {
+    required String value,
+    required IconData icon,
+    required String label,
+  }) {
+    final c = AppColors.of(context);
+    return PopupMenuItem<String>(
+      value: value,
+      height: 46,
+      child: Row(
+        children: [
+          Icon(icon, color: c.accentText, size: 19),
+          const SizedBox(width: AppSpacing.md),
+          Text(label, style: AppText.body.copyWith(color: c.textPrimary)),
+        ],
+      ),
+    );
+  }
+
+  // ─── Hero ─────────────────────────────────────────────────────────────────
+
+  Widget _buildHero(
     BuildContext context,
     VpnProvider vpn, {
-    required double scale,
-    required bool isMobileTopInsetPlatform,
+    required double buttonSize,
   }) {
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(
-        28,
-        scale * (isMobileTopInsetPlatform ? 20 : 12),
-        28,
-        80,
+    final c = AppColors.of(context);
+    final isConnected = vpn.status == VpnStatus.connected;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Connected replaces the status label with the session timer — the
+        // running clock says "protected" better than the word does.
+        Center(
+          child: isConnected
+              ? Text(
+                  _formatDuration(vpn.stats.connectedDuration),
+                  style: AppText.mono.copyWith(
+                    color: c.textPrimary,
+                    fontSize: 26,
+                    letterSpacing: 2,
+                  ),
+                )
+              : _buildStatusPill(context, vpn),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Center(
+          child: PowerButton(
+            status: vpn.status,
+            size: buttonSize,
+            onTap: () {
+              if (_servers.isEmpty) {
+                _showSnack(
+                  ScaffoldMessenger.of(context),
+                  'Сначала добавьте конфигурацию',
+                );
+                return;
+              }
+              if (vpn.selectedServer == null) {
+                vpn.selectServer(_servers.first);
+              }
+              vpn.toggleConnection();
+            },
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        // One fixed-height slot for both states — the throughput line when
+        // connected, the hint otherwise — so the list below never shifts.
+        SizedBox(
+          height: 22,
+          child: Center(
+            child: isConnected
+                ? StatsCard(stats: vpn.stats)
+                : Text(
+                    _heroHint(vpn),
+                    textAlign: TextAlign.center,
+                    style: AppText.caption.copyWith(color: c.textSecondary),
+                  ),
+          ),
+        ),
+        if (vpn.errorMessage != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          _buildErrorBanner(context, vpn.errorMessage!),
+        ],
+      ],
+    );
+  }
+
+  String _heroHint(VpnProvider vpn) {
+    if (_servers.isEmpty) return 'Добавьте конфигурацию, чтобы начать';
+    return switch (vpn.status) {
+      VpnStatus.connecting => 'Устанавливаем защищённое соединение',
+      VpnStatus.disconnecting => 'Закрываем туннель',
+      VpnStatus.error => 'Попробуйте другой сервер',
+      _ => 'Нажмите, чтобы подключиться',
+    };
+  }
+
+  static String _formatDuration(Duration d) {
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  Widget _buildStatusPill(BuildContext context, VpnProvider vpn) {
+    final c = AppColors.of(context);
+    final (label, color, background) = switch (vpn.status) {
+      VpnStatus.connected => ('Защищено', c.connectedText, c.successSoft),
+      VpnStatus.connecting => ('Подключение', c.accentText, c.accentSoft),
+      VpnStatus.disconnecting => ('Отключение', c.textSecondary, c.surfaceMuted),
+      VpnStatus.error => ('Ошибка', c.errorText, c.errorSoft),
+      VpnStatus.disconnected => ('Не подключено', c.textSecondary, c.surfaceMuted),
+    };
+
+    return AnimatedContainer(
+      duration: AppMotion.normal,
+      curve: AppMotion.curve,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Text(
+            label,
+            style: AppText.body.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorBanner(BuildContext context, String message) {
+    final c = AppColors.of(context);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: c.errorSoft,
+        borderRadius: AppRadius.mdAll,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 340,
-            child: Column(
-              children: [
-                GlassCard(
-                  borderRadius: BorderRadius.circular(28),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-                    child: _buildHeroSection(
-                      context,
-                      vpn,
-                      scale: scale,
-                      centered: true,
-                    ),
-                  ),
-                ),
-                if (_subscriptions.isEmpty) ...[
-                  const SizedBox(height: 16),
-                  GlassCard(
-                    borderRadius: BorderRadius.circular(24),
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Добавьте конфигурацию',
-                            style: TextStyle(
-                              color: AppColors.of(context).textPrimary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Импортируйте VPN из буфера обмена или через QR-код.',
-                            style: TextStyle(
-                              color: AppColors.of(context).textSecondary,
-                              fontSize: 12.5,
-                              height: 1.35,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          _buildImportButton(context),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 20),
+          Icon(Icons.error_outline_rounded, size: 18, color: c.errorText),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
-            child: Column(
-              children: _buildSubscriptionSections(context, vpn),
+            child: Text(
+              message,
+              style: AppText.caption.copyWith(color: c.errorText),
             ),
           ),
         ],
@@ -434,290 +532,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHeroSection(
-    BuildContext context,
-    VpnProvider vpn, {
-    required double scale,
-    bool centered = false,
-  }) {
-    final errorFontSize = 12 * scale;
-    return Column(
-      crossAxisAlignment:
-          centered ? CrossAxisAlignment.center : CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          height: 48 * scale,
-          child: Center(
-            child: _buildStatusOrTimer(
-              vpn,
-              context,
-              scale: scale,
-            ),
-          ),
-        ),
-        SizedBox(height: 10 * scale),
-        Center(
-          child: PowerButton(
-            status: vpn.status,
-            scale: scale,
-            onTap: () {
-              if (vpn.selectedServer == null && _servers.isNotEmpty) {
-                vpn.selectServer(_servers.first);
-              }
-              if (_servers.isNotEmpty) {
-                vpn.toggleConnection();
-              }
-            },
-          ),
-        ),
-        SizedBox(
-          height: 52 * scale,
-          child: Center(
-            child: vpn.errorMessage != null
-                ? Text(
-                    vpn.errorMessage!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppColors.error,
-                      fontSize: errorFontSize,
-                    ),
-                  )
-                : vpn.status == VpnStatus.connected
-                    ? StatsCard(stats: vpn.stats)
-                    : null,
-          ),
-        ),
-      ],
-    );
-  }
+  // ─── Subscriptions & servers ──────────────────────────────────────────────
 
-  Widget _buildImportButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 46,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.accent.withValues(alpha: 0.12),
-              AppColors.accent.withValues(alpha: 0.04),
-            ],
-          ),
-          border: Border.all(
-            color: AppColors.accent.withValues(alpha: 0.82),
-            width: 1.15,
-          ),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              final result = await ImportService.importFromClipboard();
-              _handleImportResult(messenger, result);
-            },
-            child: const Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.content_paste_rounded,
-                    size: 18,
-                    color: AppColors.accent,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'Из буфера',
-                    style: TextStyle(
-                      color: AppColors.accent,
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusOrTimer(VpnProvider vpn, BuildContext context,
-      {double scale = 1}) {
-    final c = AppColors.of(context);
-    switch (vpn.status) {
-      case VpnStatus.connected:
-        final duration = vpn.stats.connectedDuration;
-        final h = duration.inHours.toString().padLeft(2, '0');
-        final m = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-        final s = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-        return Text(
-          '$h : $m : $s',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: c.textPrimary,
-            fontSize: 18 * scale,
-            fontWeight: FontWeight.w400,
-            letterSpacing: 5.5 * scale,
-            shadows: [
-              Shadow(
-                color: AppColors.connected.withValues(alpha: 0.18),
-                blurRadius: 18 * scale,
-              ),
-            ],
-          ),
-        );
-      case VpnStatus.connecting:
-        return _buildStatusBadge(
-          context,
-          scale: scale,
-          label: 'Подключение...',
-          icon: Icons.bolt_rounded,
-          backgroundColors: Theme.of(context).brightness == Brightness.dark
-              ? const [Color(0xFF173A47), Color(0xFF112430)]
-              : const [Color(0xFFDDF7FF), Color(0xFFC8EEFF)],
-          borderColor: const Color(0xFF57D7FF),
-          iconColor: const Color(0xFF56D6FF),
-          textColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFFB8F1FF)
-              : const Color(0xFF0E5E74),
-        );
-      case VpnStatus.disconnecting:
-        return _buildStatusBadge(
-          context,
-          scale: scale,
-          label: 'Отключение...',
-          icon: Icons.power_settings_new_rounded,
-          backgroundColors: Theme.of(context).brightness == Brightness.dark
-              ? const [Color(0xFF323B5A), Color(0xFF1E2439)]
-              : const [Color(0xFFE5EAFF), Color(0xFFD6DEFF)],
-          borderColor: const Color(0xFF9BAEFF),
-          iconColor: const Color(0xFFA6B9FF),
-          textColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFFD9E2FF)
-              : const Color(0xFF42518A),
-        );
-      case VpnStatus.disconnected:
-        return _buildStatusBadge(
-          context,
-          scale: scale,
-          label: 'Не подключено',
-          icon: Icons.shield_outlined,
-          backgroundColors: [
-            c.cardBackground.withValues(alpha: 0.96),
-            c.surfaceColor.withValues(alpha: 0.92),
-          ],
-          borderColor: c.borderColor.withValues(alpha: 0.9),
-          iconColor: c.textSecondary,
-          textColor: c.textPrimary,
-        );
-      case VpnStatus.error:
-        return _buildStatusBadge(
-          context,
-          scale: scale,
-          label: 'Ошибка подключения',
-          icon: Icons.error_outline_rounded,
-          backgroundColors: Theme.of(context).brightness == Brightness.dark
-              ? const [Color(0xFF402325), Color(0xFF24171A)]
-              : const [Color(0xFFFFDFDD), Color(0xFFFFC4BF)],
-          borderColor: AppColors.error.withValues(alpha: 0.55),
-          iconColor: AppColors.error,
-          textColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFFFFB5AE)
-              : const Color(0xFF982B22),
-        );
-    }
-  }
-
-  Widget _buildStatusBadge(
-    BuildContext context, {
-    required double scale,
-    required String label,
-    required IconData icon,
-    required List<Color> backgroundColors,
-    required Color borderColor,
-    required Color iconColor,
-    required Color textColor,
-  }) {
-    return Center(
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: 16 * scale,
-          vertical: 9 * scale,
-        ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: backgroundColors,
-          ),
-          border: Border.all(color: borderColor, width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: borderColor.withValues(alpha: 0.14),
-              blurRadius: 18 * scale,
-              offset: Offset(0, 8 * scale),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 24 * scale,
-              height: 24 * scale,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: iconColor.withValues(alpha: 0.12),
-              ),
-              child: Icon(
-                icon,
-                size: 14 * scale,
-                color: iconColor,
-              ),
-            ),
-            SizedBox(width: 8 * scale),
-            Text(
-              label,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 14 * scale,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.2 * scale,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<String> _locationInfoLines(Subscription? activeSub) {
-    if (activeSub == null) return const [];
-    return activeSub.description
-        .map((line) => line.trim())
-        .where((line) =>
-            line.isNotEmpty && !_isEmailLine(line) && !_isTelegramIdLine(line))
-        .toList();
-  }
-
-  List<Widget> _buildSubscriptionSections(
-      BuildContext context, VpnProvider vpn) {
-    final c = AppColors.of(context);
-    if (_servers.isEmpty) {
-      return [
-        GlassCard(
-          borderRadius: BorderRadius.circular(22),
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
-          child: _buildEmpty(context),
-        ),
-      ];
+  List<Widget> _buildLibrary(BuildContext context, VpnProvider vpn) {
+    if (_servers.isEmpty && _subscriptions.isEmpty) {
+      return [_buildEmpty(context)];
     }
 
     final bySubId = <String, List<ServerConfig>>{};
@@ -733,107 +552,119 @@ class _HomeScreenState extends State<HomeScreen> {
       bySubId.putIfAbsent(sid, () => <ServerConfig>[]).add(server);
     }
 
-    final sections = <Widget>[];
+    final children = <Widget>[];
 
-    for (final sub in _subscriptions) {
-      final subServers = bySubId[sub.id] ?? const <ServerConfig>[];
-      final isCollapsed = _collapsedSubs.contains(sub.id);
-      final sectionChildren = <Widget>[];
-
-      sectionChildren.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-          child: _SubCard(
-            subscription: sub,
-            isRefreshing: _refreshing.contains(sub.id),
-            isCheckingPing: _checkingPing.contains(sub.id),
-            isCollapsed: isCollapsed,
-            onRefresh: () => _refreshSub(sub),
-            onCheckPing: () => _checkTcpPingForSubscription(sub),
-            onDelete: () => _deleteSub(sub),
-            onToggleCollapse: () => setState(() {
-              if (isCollapsed) {
-                _collapsedSubs.remove(sub.id);
-              } else {
-                _collapsedSubs.add(sub.id);
-              }
-            }),
+    if (_subscriptions.isNotEmpty) {
+      children.add(
+        AppSectionLabel(
+          text: 'Подписки',
+          trailing: Text(
+            '${_subscriptions.length}',
+            style: AppText.overline.copyWith(
+              color: AppColors.of(context).textDisabled,
+            ),
           ),
         ),
       );
-
-      if (!isCollapsed) {
-        final infoLines = _locationInfoLines(sub);
-        if (infoLines.isNotEmpty) {
-          sectionChildren.add(Divider(height: 1, color: c.borderColor));
-          sectionChildren.add(
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: _buildLocationsInfo(context, infoLines),
-            ),
-          );
-        }
-
-        if (subServers.isNotEmpty) {
-          sectionChildren.add(Divider(height: 1, color: c.borderColor));
-          sectionChildren.addAll(_buildServerRows(vpn, subServers));
-        }
+      for (final sub in _subscriptions) {
+        children.add(
+          _buildSubscriptionCard(
+            context,
+            vpn,
+            sub,
+            bySubId[sub.id] ?? const <ServerConfig>[],
+          ),
+        );
+        children.add(const SizedBox(height: AppSpacing.md));
       }
-
-      sections.add(
-        GlassCard(
-          borderRadius: BorderRadius.circular(20),
-          child: ClipRect(
-            child: AnimatedSize(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeInOut,
-              alignment: Alignment.topCenter,
-              child: Column(children: sectionChildren),
-            ),
-          ),
-        ),
-      );
     }
 
     if (orphanServers.isNotEmpty) {
-      sections.add(
-        GlassCard(
-          borderRadius: BorderRadius.circular(20),
+      children.add(const AppSectionLabel(text: 'Отдельные серверы'));
+      children.add(
+        AppCard(
+          padding: EdgeInsets.zero,
           child: Column(children: _buildServerRows(vpn, orphanServers)),
         ),
       );
+      children.add(const SizedBox(height: AppSpacing.md));
     }
 
-    if (sections.isEmpty) {
-      sections.add(
-        GlassCard(
-          borderRadius: BorderRadius.circular(22),
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
-          child: _buildEmpty(context),
-        ),
-      );
+    if (children.isNotEmpty) children.removeLast();
+    return children;
+  }
+
+  Widget _buildSubscriptionCard(
+    BuildContext context,
+    VpnProvider vpn,
+    Subscription sub,
+    List<ServerConfig> subServers,
+  ) {
+    final c = AppColors.of(context);
+    final isCollapsed = _collapsedSubs.contains(sub.id);
+    final children = <Widget>[
+      _SubCard(
+        subscription: sub,
+        isRefreshing: _refreshing.contains(sub.id),
+        isCheckingPing: _checkingPing.contains(sub.id),
+        isCollapsed: isCollapsed,
+        onRefresh: () => _refreshSub(sub),
+        onCheckPing: () => _checkTcpPingForSubscription(sub),
+        onDelete: () => _deleteSub(sub),
+        onToggleCollapse: () => setState(() {
+          if (isCollapsed) {
+            _collapsedSubs.remove(sub.id);
+          } else {
+            _collapsedSubs.add(sub.id);
+          }
+        }),
+      ),
+    ];
+
+    if (!isCollapsed) {
+      final infoLines = _locationInfoLines(sub);
+      if (infoLines.isNotEmpty) {
+        children.add(Divider(height: 1, color: c.border));
+        children.add(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
+            child: _buildLocationsInfo(context, infoLines),
+          ),
+        );
+      }
+
+      if (subServers.isNotEmpty) {
+        children.add(Divider(height: 1, color: c.border));
+        children.addAll(_buildServerRows(vpn, subServers));
+      }
     }
 
-    return sections.asMap().entries.expand((entry) {
-      final out = <Widget>[];
-      if (entry.key > 0) out.add(const SizedBox(height: 12));
-      out.add(entry.value);
-      return out;
-    }).toList();
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: AnimatedSize(
+        duration: AppMotion.normal,
+        curve: AppMotion.curve,
+        alignment: Alignment.topCenter,
+        child: Column(children: children),
+      ),
+    );
   }
 
   List<Widget> _buildServerRows(VpnProvider vpn, List<ServerConfig> servers) {
     final c = AppColors.of(context);
-    final selectedId = vpn.selectedServer?.id;
-    final effectiveSelectedId =
-        selectedId ?? (_servers.isNotEmpty ? _servers.first.id : null);
+    final effectiveId = _effectiveServer(vpn)?.id;
 
     return servers.asMap().entries.map((entry) {
       final index = entry.key;
       final server = entry.value;
       return Column(
         children: [
-          if (index > 0) Divider(height: 1, color: c.borderColor),
+          if (index > 0) Divider(height: 1, indent: 62, color: c.border),
           Dismissible(
             key: Key('server_${server.id}'),
             direction: DismissDirection.endToStart,
@@ -842,22 +673,26 @@ class _HomeScreenState extends State<HomeScreen> {
               await StorageService.deleteServer(server.id);
               _loadServers();
             },
-            background: Container(
-              decoration: BoxDecoration(
-                color: AppColors.error.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
+            background: ColoredBox(
+              color: c.errorSoft,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.xl),
+                  child: Icon(
+                    Icons.delete_outline_rounded,
+                    color: c.errorText,
+                    size: 22,
+                  ),
+                ),
               ),
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 18),
-              child: const Icon(Icons.delete_outline_rounded,
-                  color: AppColors.error, size: 22),
             ),
             child: _ServerRow(
               server: server,
               pingMs: _tcpPingByServerId[server.id],
               isPingLoading: _pendingPingServerIds.contains(server.id),
               hasMeasuredPing: _measuredPingServerIds.contains(server.id),
-              isSelected: effectiveSelectedId == server.id,
+              isSelected: effectiveId == server.id,
               onTap: () {
                 vpn.selectServer(server);
                 setState(() {});
@@ -869,67 +704,86 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
   }
 
+  List<String> _locationInfoLines(Subscription? activeSub) {
+    if (activeSub == null) return const [];
+    return activeSub.description
+        .map((line) => line.trim())
+        .where((line) =>
+            line.isNotEmpty && !_isEmailLine(line) && !_isTelegramIdLine(line))
+        .toList();
+  }
+
   Widget _buildLocationsInfo(BuildContext context, List<String> lines) {
     final c = AppColors.of(context);
-    // Email и TG ID теперь отображаются внутри _SubCard — здесь их пропускаем
+    // Email и TG ID отображаются внутри _SubCard — здесь их пропускаем
     final filtered =
         lines.where((l) => !_isEmailLine(l) && !_isTelegramIdLine(l)).toList();
     if (filtered.isEmpty) return const SizedBox.shrink();
-    final widgets = <Widget>[];
-    for (int i = 0; i < filtered.length; i++) {
-      final line = filtered[i];
-      final bool isHighlighted = line.toLowerCase().contains('осталось');
-      widgets.add(Text(
-        line,
-        style: TextStyle(
-          color: c.textSecondary,
-          fontSize: isHighlighted ? 13 : 11.5,
-          height: 1.2,
-          fontWeight: isHighlighted ? FontWeight.w600 : FontWeight.w500,
-        ),
-      ));
-      if (i != filtered.length - 1) widgets.add(const SizedBox(height: 3));
-    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: widgets,
+      children: [
+        for (var i = 0; i < filtered.length; i++) ...[
+          if (i > 0) const SizedBox(height: AppSpacing.xs),
+          Text(
+            filtered[i],
+            style: AppText.caption.copyWith(
+              color: filtered[i].toLowerCase().contains('осталось')
+                  ? c.textPrimary
+                  : c.textSecondary,
+              fontSize: 12.5,
+            ),
+          ),
+        ],
+      ],
     );
   }
 
   Widget _buildEmpty(BuildContext context) {
     final c = AppColors.of(context);
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 320),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.public_outlined, size: 44, color: c.textDisabled),
-            const SizedBox(height: 10),
-            Text(
-              'Нет конфигураций',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: c.textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Нажмите + чтобы добавить VPN-сервер',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: c.textSecondary,
-                fontSize: 12.5,
-                height: 1.25,
-              ),
-            ),
-          ],
-        ),
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xl,
+        AppSpacing.xxl,
+        AppSpacing.xl,
+        AppSpacing.xl,
+      ),
+      child: Column(
+        children: [
+          AppIconPlate(
+            icon: Icons.public_rounded,
+            color: c.accentText,
+            size: 52,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'Нет конфигураций',
+            textAlign: TextAlign.center,
+            style: AppText.heading.copyWith(color: c.textPrimary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Скопируйте ссылку подписки или vless://-ключ '
+            'и вставьте его из буфера обмена.',
+            textAlign: TextAlign.center,
+            style: AppText.caption.copyWith(color: c.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          FilledButton.icon(
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final result = await ImportService.importFromClipboard();
+              _handleImportResult(messenger, result);
+            },
+            icon: const Icon(Icons.content_paste_rounded, size: 18),
+            label: const Text('Вставить из буфера'),
+          ),
+        ],
       ),
     );
   }
+
+  // ─── Actions ──────────────────────────────────────────────────────────────
 
   Future<void> _handleImportResult(
     ScaffoldMessengerState messenger,
@@ -1038,70 +892,54 @@ class _HomeScreenState extends State<HomeScreen> {
     _topNoticeEntry = null;
 
     final overlay = Overlay.of(context, rootOverlay: true);
-
-    final iconData = switch (type) {
-      _TopNoticeType.info => Icons.info_outline_rounded,
-      _TopNoticeType.success => Icons.check_rounded,
-      _TopNoticeType.error => Icons.close_rounded,
-    };
-    final iconColor = switch (type) {
-      _TopNoticeType.info => const Color(0xFFF59B2A),
-      _TopNoticeType.success => AppColors.connected,
-      _TopNoticeType.error => AppColors.error,
-    };
-
     final key = GlobalKey<_TopNoticeHostState>();
 
     late OverlayEntry entry;
     entry = OverlayEntry(
       builder: (ctx) {
-        final safeTop = MediaQuery.of(ctx).padding.top + 8;
         final c = AppColors.of(ctx);
+        final safeTop = MediaQuery.of(ctx).padding.top + AppSpacing.sm;
+        final (iconData, iconColor) = switch (type) {
+          _TopNoticeType.info => (Icons.info_outline_rounded, c.infoText),
+          _TopNoticeType.success => (Icons.check_rounded, c.connectedText),
+          _TopNoticeType.error => (Icons.close_rounded, c.errorText),
+        };
+
         return Positioned(
           top: safeTop,
-          left: 16,
-          right: 16,
+          left: AppSpacing.page,
+          right: AppSpacing.page,
           child: _TopNoticeHost(
             key: key,
             child: IgnorePointer(
-              child: Material(
-                color: Colors.transparent,
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: IntrinsicWidth(
-                    child: GlassCard(
-                      borderRadius: BorderRadius.circular(14),
-                      blur: 24,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 22,
-                              height: 22,
-                              decoration: BoxDecoration(
-                                color: iconColor,
-                                shape: BoxShape.circle,
-                              ),
-                              child:
-                                  Icon(iconData, color: Colors.white, size: 13),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              message,
-                              style: TextStyle(
-                                color: c.textPrimary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: c.surface,
+                    borderRadius: AppRadius.mdAll,
+                    border: Border.all(color: c.border),
+                    boxShadow: c.floatingShadow,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(iconData, size: 18, color: iconColor),
+                      const SizedBox(width: AppSpacing.sm),
+                      Flexible(
+                        child: Text(
+                          message,
+                          style: AppText.body.copyWith(
+                            color: c.textPrimary,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -1161,64 +999,48 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _deleteSub(Subscription sub) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final c = AppColors.of(ctx);
-        return AlertDialog(
-          backgroundColor: c.cardBackground,
-          title:
-              Text('Удалить подписку?', style: TextStyle(color: c.textPrimary)),
-          content: Text(
-            '${sub.name}\n\nВсе серверы из этой подписки будут удалены.',
-            style: TextStyle(color: c.textSecondary),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Отмена', style: TextStyle(color: c.textSecondary)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Удалить',
-                  style: TextStyle(color: AppColors.error)),
-            ),
-          ],
-        );
-      },
+    final confirm = await _confirm(
+      title: 'Удалить подписку?',
+      message: '${sub.name}\n\nВсе серверы из этой подписки будут удалены.',
     );
-    if (confirm == true) {
+    if (confirm) {
       await StorageService.deleteSubscription(sub.id);
       _loadAll();
     }
   }
 
-  Future<bool> _confirmDeleteServer(ServerConfig server) async {
-    final confirm = await showDialog<bool>(
+  Future<bool> _confirmDeleteServer(ServerConfig server) => _confirm(
+        title: 'Удалить сервер?',
+        message: server.displayName,
+      );
+
+  Future<bool> _confirm({
+    required String title,
+    required String message,
+  }) async {
+    final result = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         final c = AppColors.of(ctx);
         return AlertDialog(
-          backgroundColor: c.cardBackground,
-          title:
-              Text('Удалить сервер?', style: TextStyle(color: c.textPrimary)),
-          content: Text(server.displayName,
-              style: TextStyle(color: c.textSecondary)),
+          title: Text(title),
+          content: Text(message),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Отмена', style: TextStyle(color: c.textSecondary)),
+              style: TextButton.styleFrom(foregroundColor: c.textSecondary),
+              child: const Text('Отмена'),
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Удалить',
-                  style: TextStyle(color: AppColors.error)),
+              style: TextButton.styleFrom(foregroundColor: c.errorText),
+              child: const Text('Удалить'),
             ),
           ],
         );
       },
     );
-    return confirm == true;
+    return result == true;
   }
 
   Future<void> _checkTcpPingForSubscription(Subscription sub) async {
@@ -1351,11 +1173,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<int?> _measureServerPing(ServerConfig server) async {
     final pingMethod = StorageService.getPingMethod();
     if (_isProxyPingMethod(pingMethod)) {
-      if (!_usesUdpProtocol(server)) {
-        final tcpPing = await measureTcpPing(server.host, server.port);
-        if (tcpPing != null) {
-          return tcpPing;
-        }
+      // Every supported server is VLESS over a TCP-based transport now, so the
+      // TCP probe always applies — the UDP-only exception went out with
+      // Hysteria.
+      final tcpPing = await measureTcpPing(server.host, server.port);
+      if (tcpPing != null) {
+        return tcpPing;
       }
 
       final testUri = Uri.tryParse(StorageService.getPingTestUrl());
@@ -1371,15 +1194,12 @@ class _HomeScreenState extends State<HomeScreen> {
           return ping;
         }
       }
-      if (_usesUdpProtocol(server)) {
-        return measureIcmpPing(server.host);
-      }
       return measureTcpPing(server.host, server.port);
     }
 
     if (pingMethod == StorageService.pingMethodIcmp) {
       final ping = await measureIcmpPing(server.host);
-      if (ping != null || _usesUdpProtocol(server)) {
+      if (ping != null) {
         return ping;
       }
       return measureTcpPing(server.host, server.port);
@@ -1393,28 +1213,16 @@ class _HomeScreenState extends State<HomeScreen> {
         method == StorageService.pingMethodProxyHead;
   }
 
-  bool _usesUdpProtocol(ServerConfig server) {
-    final protocol = server.protocol.toLowerCase();
-    final sourceProtocol =
-        server.extras['sourceProtocol']?.trim().toLowerCase() ?? '';
-    return protocol == 'hysteria' ||
-        protocol == 'hysteria2' ||
-        protocol == 'hy2' ||
-        sourceProtocol == 'hysteria' ||
-        sourceProtocol == 'hysteria2' ||
-        sourceProtocol == 'hy2';
-  }
-
   void _openSettings() {
     Navigator.of(context).push(
       PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 220),
-        reverseTransitionDuration: const Duration(milliseconds: 180),
+        transitionDuration: AppMotion.normal,
+        reverseTransitionDuration: AppMotion.fast,
         pageBuilder: (_, __, ___) => const SettingsScreen(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           final curved = CurvedAnimation(
             parent: animation,
-            curve: Curves.easeOutCubic,
+            curve: AppMotion.curve,
             reverseCurve: Curves.easeInCubic,
           );
 
@@ -1424,7 +1232,7 @@ class _HomeScreenState extends State<HomeScreen> {
               opacity: curved,
               child: SlideTransition(
                 position: Tween<Offset>(
-                  begin: const Offset(0.035, 0),
+                  begin: const Offset(0.04, 0),
                   end: Offset.zero,
                 ).animate(curved),
                 child: child,
@@ -1460,7 +1268,92 @@ bool _isTelegramIdLine(String line) {
       RegExp(r'^\d{5,}$').hasMatch(t);
 }
 
-// ─── Subscription Card ────────────────────────────────────────────────────────
+/// Splits a display name into its country flag / ISO prefix and the rest.
+class _ServerLabel {
+  static final RegExp _isoCodePrefix =
+      RegExp(r'^([A-Za-z]{2})(?:[\s\-_:/|]+)(.+)$');
+
+  final ServerConfig server;
+
+  const _ServerLabel(this.server);
+
+  String? get emojiFlag {
+    final runes = server.displayName.runes.toList();
+    if (runes.length >= 2 &&
+        runes[0] >= 0x1F1E6 &&
+        runes[0] <= 0x1F1FF &&
+        runes[1] >= 0x1F1E6 &&
+        runes[1] <= 0x1F1FF) {
+      return String.fromCharCodes(runes.take(2));
+    }
+    return null;
+  }
+
+  String? get flagCode {
+    final runes = server.displayName.runes.toList();
+    if (runes.length >= 2 &&
+        runes[0] >= 0x1F1E6 &&
+        runes[0] <= 0x1F1FF &&
+        runes[1] >= 0x1F1E6 &&
+        runes[1] <= 0x1F1FF) {
+      final first = (runes[0] - 0x1F1E6) + 65;
+      final second = (runes[1] - 0x1F1E6) + 65;
+      return String.fromCharCodes([first, second]);
+    }
+    final match = _isoCodePrefix.firstMatch(server.displayName.trim());
+    return match?.group(1)?.toUpperCase();
+  }
+
+  String get _name {
+    final flag = emojiFlag;
+    if (flag != null) {
+      return server.displayName.substring(flag.length).trim();
+    }
+    final match = _isoCodePrefix.firstMatch(server.displayName.trim());
+    if (match != null) {
+      return match.group(2)?.trim() ?? server.displayName;
+    }
+    return server.displayName;
+  }
+
+  bool get isUnnamedKey {
+    final rawName = server.name.trim();
+    if (rawName.isEmpty) return true;
+    return rawName == '${server.host}:${server.port}';
+  }
+
+  String get title {
+    if (isUnnamedKey) return 'Ключ ${server.protocolUpper}';
+    final name = _name;
+    return name.isNotEmpty ? name : server.displayName;
+  }
+
+  String get subtitle =>
+      isUnnamedKey ? '${server.host}:${server.port}' : server.protocolUpper;
+
+  /// The leading avatar: a flag when the name carries one, otherwise an icon.
+  Widget buildAvatar(BuildContext context, {double size = 38}) {
+    final c = AppColors.of(context);
+    final code = flagCode;
+    if (code != null) {
+      return CountryFlagIcon(countryCode: code, size: size);
+    }
+    return AppIconPlate(
+      icon: isUnnamedKey ? Icons.vpn_key_rounded : Icons.public_rounded,
+      color: c.textSecondary,
+      background: c.surfaceMuted,
+      size: size,
+    );
+  }
+}
+
+Color _pingColor(AppColors c, int ms) {
+  if (ms <= 120) return c.connectedText;
+  if (ms <= 300) return c.warningText;
+  return c.errorText;
+}
+
+// ─── Subscription header ──────────────────────────────────────────────────────
 
 class _SubCard extends StatelessWidget {
   final Subscription subscription;
@@ -1500,192 +1393,211 @@ class _SubCard extends StatelessWidget {
 
   String _fmtGb(int bytes) {
     final gb = bytes / (1024 * 1024 * 1024);
-    return '${gb.toStringAsFixed(1).replaceAll('.', ',')} GB';
+    return '${gb.toStringAsFixed(1).replaceAll('.', ',')} ГБ';
   }
 
-  String _fmtDate(DateTime d) {
-    final h = d.hour.toString().padLeft(2, '0');
-    final m = d.minute.toString().padLeft(2, '0');
-    return '${d.day} ${_months[d.month - 1]} ${d.year} $h:$m';
-  }
+  String _fmtDate(DateTime d) =>
+      '${d.day} ${_months[d.month - 1]} ${d.year}';
 
   String _displayProjectName(String raw) {
     final value = raw.trim();
     return value.isEmpty ? 'Подписка' : value;
   }
 
-  Color _trafficBarColor(double ratio) {
-    if (ratio >= 0.9) return AppColors.error.withValues(alpha: 0.75);
-    if (ratio >= 0.7) return AppColors.warning.withValues(alpha: 0.75);
-    return AppColors.connected.withValues(alpha: 0.65);
+  Color _trafficColor(AppColors c, double ratio) {
+    if (ratio >= 0.9) return c.errorText;
+    if (ratio >= 0.7) return c.warningText;
+    return c.accentText;
   }
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final refreshColor = isDark ? AppColors.accent : const Color(0xFF6E82A0);
-    final pingActionColor =
-        isDark ? AppColors.connected : const Color(0xFF7D8FAA);
     final used = subscription.usedBytes;
     final total = subscription.totalBytes;
     final ratio =
         (total != null && total > 0) ? math.min(used / total, 1.0) : 0.0;
     final expireDate = subscription.expireDate;
+    final barColor = _trafficColor(c, ratio);
 
-    return Column(
-      children: [
-        InkWell(
-          onTap: onToggleCollapse,
-          borderRadius: BorderRadius.circular(12),
-          child: Row(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.lg,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              AnimatedRotation(
-                turns: isCollapsed ? -0.25 : 0,
-                duration: const Duration(milliseconds: 220),
-                child: Icon(Icons.expand_more_rounded,
-                    size: 22, color: c.textSecondary),
-              ),
-              const SizedBox(width: 4),
               Expanded(
-                child: Text(
-                  _displayProjectName(subscription.name),
-                  style: TextStyle(
-                    color: c.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Opacity(
-                opacity: isRefreshing ? 0.55 : 1,
                 child: InkWell(
-                  onTap: isRefreshing ? null : onRefresh,
-                  borderRadius: BorderRadius.circular(20),
+                  onTap: onToggleCollapse,
+                  borderRadius: AppRadius.smAll,
                   child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      Icons.refresh_rounded,
-                      size: 29,
-                      color: refreshColor,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.sm,
+                      horizontal: AppSpacing.xs,
+                    ),
+                    child: Row(
+                      children: [
+                        AnimatedRotation(
+                          turns: isCollapsed ? -0.25 : 0,
+                          duration: AppMotion.normal,
+                          child: Icon(
+                            Icons.expand_more_rounded,
+                            size: 20,
+                            color: c.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            _displayProjectName(subscription.name),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.heading.copyWith(
+                              color: c.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Opacity(
-                opacity: isCheckingPing ? 0.55 : 1,
-                child: InkWell(
-                  onTap: isCheckingPing ? null : onCheckPing,
-                  borderRadius: BorderRadius.circular(20),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      Icons.bolt_rounded,
-                      size: 27,
-                      color: pingActionColor,
-                    ),
-                  ),
-                ),
+              AppIconButton(
+                icon: Icons.refresh_rounded,
+                tooltip: 'Обновить подписку',
+                isBusy: isRefreshing,
+                onTap: onRefresh,
+                size: 38,
               ),
-              const SizedBox(width: 8),
-              InkWell(
+              AppIconButton(
+                icon: Icons.bolt_rounded,
+                tooltip: 'Проверить ping',
+                isBusy: isCheckingPing,
+                onTap: onCheckPing,
+                size: 38,
+              ),
+              AppIconButton(
+                icon: Icons.delete_outline_rounded,
+                tooltip: 'Удалить подписку',
                 onTap: onDelete,
-                borderRadius: BorderRadius.circular(20),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(Icons.delete_outline_rounded,
-                      size: 22, color: c.textSecondary),
-                ),
+                size: 38,
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 8),
-        Divider(height: 1, color: c.borderColor),
-        const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(9),
-          child: SizedBox(
-            height: 20,
-            child: Stack(
+          const SizedBox(height: AppSpacing.md),
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.xs),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(color: c.borderColor),
-                FractionallySizedBox(
-                  widthFactor: ratio.clamp(0.0, 1.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: _trafficBarColor(ratio),
+                Row(
+                  children: [
+                    Text(
+                      'Трафик',
+                      style: AppText.caption.copyWith(
+                        color: c.textSecondary,
+                        fontSize: 12.5,
+                      ),
                     ),
+                    const Spacer(),
+                    Text(
+                      total != null
+                          ? '${_fmtGb(used)} из ${_fmtGb(total)}'
+                          : _fmtGb(used),
+                      style: AppText.mono.copyWith(
+                        color: c.textPrimary,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: ratio,
+                    minHeight: 6,
+                    backgroundColor: c.surfaceMuted,
+                    valueColor: AlwaysStoppedAnimation(barColor),
                   ),
                 ),
-                Center(
-                  child: Text(
-                    total != null
-                        ? '${_fmtGb(used)}/${_fmtGb(total)}'
-                        : '${_fmtGb(used)}/--',
-                    style: TextStyle(
-                      color: c.textPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                if (expireDate != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  _buildExpiry(c, expireDate),
+                ],
+                if (_userInfoPills(c).isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: _userInfoPills(c),
                   ),
-                ),
+                ],
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            expireDate == null
-                ? 'Активна до: --'
-                : 'Активна до: ${_fmtDate(expireDate)}',
-            style: TextStyle(
-              color: c.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+        ],
+      ),
+    );
+  }
+
+  /// Expiry as a plain label/value row, matching the traffic line above it.
+  Widget _buildExpiry(AppColors c, DateTime expireDate) {
+    final days = expireDate.difference(DateTime.now()).inDays;
+    final expired = days < 0;
+    final valueColor = expired || days <= 3
+        ? c.errorText
+        : days <= 14
+            ? c.warningText
+            : c.textPrimary;
+
+    return Row(
+      children: [
+        Text(
+          expired ? 'Истекла' : 'Истекает',
+          style: AppText.caption.copyWith(
+            color: c.textSecondary,
+            fontSize: 12.5,
           ),
         ),
-        ..._buildUserInfoLines(c),
+        const Spacer(),
+        Text(
+          _fmtDate(expireDate),
+          style: AppText.mono.copyWith(color: valueColor, fontSize: 12.5),
+        ),
       ],
     );
   }
 
-  List<Widget> _buildUserInfoLines(AppColors c) {
+  List<Widget> _userInfoPills(AppColors c) {
     final lines = subscription.description
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty)
         .toList();
-    final email = lines.where(_isEmailLine).firstOrNull;
     final tgId = lines.where(_isTelegramIdLine).firstOrNull;
-    if (tgId == null && email == null) return const [];
-    final style = TextStyle(
-      color: c.textSecondary,
-      fontSize: 11.5,
-      fontWeight: FontWeight.w500,
-      height: 1.3,
-    );
+    final email = lines.where(_isEmailLine).firstOrNull;
+
+    final label = tgId != null ? 'TG ID: $tgId' : email;
+    if (label == null) return const [];
+
     return [
-      const SizedBox(height: 4),
-      if (tgId != null)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text('TG ID: $tgId', style: style),
-        )
-      else if (email != null)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text('email: $email', style: style),
-        ),
+      AppPill(
+        icon: Icons.person_outline_rounded,
+        label: label,
+        color: c.textSecondary,
+        background: c.surfaceMuted,
+      ),
     ];
   }
 }
 
-// ─── Locations Rows ───────────────────────────────────────────────────────────
+// ─── Server row ───────────────────────────────────────────────────────────────
 
 class _ServerRow extends StatelessWidget {
   final ServerConfig server;
@@ -1704,195 +1616,59 @@ class _ServerRow extends StatelessWidget {
     required this.onTap,
   });
 
-  static final RegExp _isoCodePrefix =
-      RegExp(r'^([A-Za-z]{2})(?:[\s\-_:/|]+)(.+)$');
-
-  String? get _leadingIsoCode {
-    final match = _isoCodePrefix.firstMatch(server.displayName.trim());
-    if (match == null) return null;
-    return match.group(1)?.toUpperCase();
-  }
-
-  String? get _emojiFlag {
-    final runes = server.displayName.runes.toList();
-    if (runes.length >= 2 &&
-        runes[0] >= 0x1F1E6 &&
-        runes[0] <= 0x1F1FF &&
-        runes[1] >= 0x1F1E6 &&
-        runes[1] <= 0x1F1FF) {
-      return String.fromCharCodes(runes.take(2));
-    }
-    return null;
-  }
-
-  String? get _flagCode {
-    final runes = server.displayName.runes.toList();
-    if (runes.length >= 2 &&
-        runes[0] >= 0x1F1E6 &&
-        runes[0] <= 0x1F1FF &&
-        runes[1] >= 0x1F1E6 &&
-        runes[1] <= 0x1F1FF) {
-      final first = (runes[0] - 0x1F1E6) + 65;
-      final second = (runes[1] - 0x1F1E6) + 65;
-      return String.fromCharCodes([first, second]);
-    }
-    return _leadingIsoCode;
-  }
-
-  String get _name {
-    final flag = _emojiFlag;
-    if (flag != null &&
-        server.displayName.runes.length >= 2 &&
-        server.displayName.runes.first >= 0x1F1E6 &&
-        server.displayName.runes.first <= 0x1F1FF) {
-      return server.displayName.substring(flag.length).trim();
-    }
-    final match = _isoCodePrefix.firstMatch(server.displayName.trim());
-    if (match != null) {
-      return match.group(2)?.trim() ?? server.displayName;
-    }
-    return server.displayName;
-  }
-
-  bool get _isUnnamedKey {
-    final rawName = server.name.trim();
-    if (rawName.isEmpty) return true;
-    return rawName == '${server.host}:${server.port}';
-  }
-
-  String get _title => _isUnnamedKey ? 'Ключ ${server.protocolUpper}' : _name;
-
-  String get _subtitle =>
-      _isUnnamedKey ? '${server.host}:${server.port}' : server.protocolUpper;
-
-  bool get _usesUdpProtocol {
-    final protocol = server.protocol.toLowerCase();
-    final sourceProtocol =
-        server.extras['sourceProtocol']?.trim().toLowerCase() ?? '';
-    return protocol == 'hysteria' ||
-        protocol == 'hysteria2' ||
-        protocol == 'hy2' ||
-        sourceProtocol == 'hysteria' ||
-        sourceProtocol == 'hysteria2' ||
-        sourceProtocol == 'hy2';
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final flag = _emojiFlag;
-    final flagCode = _flagCode;
-    final title = _title;
-    final selectedTitleColor =
-        isDark ? AppColors.accent : const Color(0xFF213145);
-    final selectedSecondaryColor = isDark
-        ? AppColors.accentGlow.withValues(alpha: 0.75)
-        : const Color(0xFF6B7C95);
-    final pingStyle = TextStyle(
-      color: isSelected ? selectedSecondaryColor : c.textSecondary,
-      fontSize: 10,
-      fontWeight: FontWeight.w600,
-    );
+    final label = _ServerLabel(server);
 
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          gradient: isSelected && !isDark
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.72),
-                    const Color(0xFFDDE7F1).withValues(alpha: 0.9),
-                  ],
-                )
-              : null,
-          color: isSelected
-              ? isDark
-                  ? AppColors.accent.withValues(alpha: 0.13)
-                  : null
-              : Colors.transparent,
-          border: isSelected && !isDark
-              ? Border.symmetric(
-                  horizontal: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.44),
-                    width: 0.8,
-                  ),
-                )
-              : null,
-          borderRadius:
-              isSelected ? BorderRadius.zero : BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 38,
-              height: 38,
-              child: flagCode != null
-                  ? CountryFlag.fromCountryCode(
-                      flagCode,
-                      theme: const ImageTheme(
-                        width: 38,
-                        height: 38,
-                        shape: Circle(),
+    return Material(
+      color: isSelected ? c.accentSoft : c.surface,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: 10,
+          ),
+          child: Row(
+            children: [
+              label.buildAvatar(context),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body.copyWith(
+                        color: isSelected ? c.accentText : c.textPrimary,
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.w500,
                       ),
-                    )
-                  : flag != null
-                      ? Text(
-                          flag,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontFamily: 'Segoe UI Emoji',
-                            height: 1.0,
-                          ),
-                        )
-                      : Icon(
-                          _isUnnamedKey
-                              ? Icons.vpn_key_rounded
-                              : Icons.public_rounded,
-                          size: 24,
-                          color: isSelected
-                              ? selectedTitleColor
-                              : c.textSecondary),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title.isNotEmpty ? title : server.displayName,
-                    style: TextStyle(
-                      color: isSelected ? selectedTitleColor : c.textPrimary,
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w500,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    _subtitle,
-                    style: TextStyle(
-                      color:
-                          isSelected ? selectedSecondaryColor : c.textSecondary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
+                    const SizedBox(height: 1),
+                    Text(
+                      label.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.caption.copyWith(
+                        color: c.textDisabled,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            _PingStatusLabel(
-              pingMs: pingMs,
-              isLoading: isPingLoading,
-              hasMeasuredPing: hasMeasuredPing,
-              unavailableLabel: _usesUdpProtocol ? 'udp' : 'fail',
-              style: pingStyle,
-            ),
-          ],
+              const SizedBox(width: AppSpacing.sm),
+              _PingStatusLabel(
+                pingMs: pingMs,
+                isLoading: isPingLoading,
+                hasMeasuredPing: hasMeasuredPing,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1903,84 +1679,54 @@ class _PingStatusLabel extends StatelessWidget {
   final int? pingMs;
   final bool isLoading;
   final bool hasMeasuredPing;
-  final String unavailableLabel;
-  final TextStyle style;
 
   const _PingStatusLabel({
     required this.pingMs,
     required this.isLoading,
     required this.hasMeasuredPing,
-    required this.unavailableLabel,
-    required this.style,
   });
 
   @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+
     if (isLoading) {
-      return _AnimatedDotsLabel(style: style);
+      return SizedBox(
+        width: 44,
+        child: Center(
+          child: SizedBox(
+            width: 13,
+            height: 13,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.8,
+              color: c.textDisabled,
+            ),
+          ),
+        ),
+      );
     }
 
-    final text = pingMs != null
-        ? '$pingMs ms'
+    final ms = pingMs;
+    final (text, color) = ms != null
+        ? ('$ms ms', _pingColor(c, ms))
         : hasMeasuredPing
-            ? unavailableLabel
-            : '--';
-    return Text(text, style: style);
-  }
-}
+            ? ('—', c.errorText)
+            : ('', c.textDisabled);
 
-class _AnimatedDotsLabel extends StatefulWidget {
-  final TextStyle style;
+    if (text.isEmpty) return const SizedBox(width: 44);
 
-  const _AnimatedDotsLabel({required this.style});
-
-  @override
-  State<_AnimatedDotsLabel> createState() => _AnimatedDotsLabelState();
-}
-
-class _AnimatedDotsLabelState extends State<_AnimatedDotsLabel>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final dotsCount = ((_controller.value * 3).floor() % 3) + 1;
-        final dots = '.' * dotsCount;
-
-        return Stack(
-          alignment: Alignment.centerRight,
-          children: [
-            Opacity(
-              opacity: 0,
-              child: Text('...', style: widget.style),
-            ),
-            Text(dots, style: widget.style),
-          ],
-        );
-      },
+    return SizedBox(
+      width: 44,
+      child: Text(
+        text,
+        textAlign: TextAlign.right,
+        style: AppText.mono.copyWith(color: color, fontSize: 12),
+      ),
     );
   }
 }
 
-// ─── Top Notice animated host ─────────────────────────────────────────────────
+// ─── Top notice animated host ─────────────────────────────────────────────────
 
 class _TopNoticeHost extends StatefulWidget {
   final Widget child;
@@ -2001,13 +1747,13 @@ class _TopNoticeHostState extends State<_TopNoticeHost>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 280),
+      duration: AppMotion.normal,
     );
     _opacity = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _slide = Tween<Offset>(
       begin: const Offset(0, -0.8),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    ).animate(CurvedAnimation(parent: _ctrl, curve: AppMotion.curve));
     _ctrl.forward();
   }
 
@@ -2029,56 +1775,6 @@ class _TopNoticeHostState extends State<_TopNoticeHost>
       child: SlideTransition(
         position: _slide,
         child: widget.child,
-      ),
-    );
-  }
-}
-
-// ─── AppBar icon button ───────────────────────────────────────────────────────
-
-class _AppBarButton extends StatefulWidget {
-  final IconData icon;
-  final double iconSize;
-
-  const _AppBarButton({required this.icon, required this.iconSize});
-
-  @override
-  State<_AppBarButton> createState() => _AppBarButtonState();
-}
-
-class _AppBarButtonState extends State<_AppBarButton> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isDark
-        ? Colors.white.withValues(alpha: _isHovered ? 0.28 : 0.16)
-        : const Color(0xFFD7E0EA).withValues(alpha: _isHovered ? 0.96 : 0.78);
-    final fillColor = isDark
-        ? Colors.white.withValues(alpha: _isHovered ? 0.14 : 0.09)
-        : Colors.white.withValues(alpha: _isHovered ? 0.44 : 0.28);
-    final iconColor = isDark
-        ? Colors.white.withValues(alpha: _isHovered ? 1 : 0.88)
-        : const Color(0xFF5F6F85).withValues(alpha: _isHovered ? 1 : 0.92);
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: fillColor,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: borderColor),
-        ),
-        child: Center(
-          child: Icon(widget.icon, color: iconColor, size: widget.iconSize),
-        ),
       ),
     );
   }

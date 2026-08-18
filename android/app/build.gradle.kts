@@ -13,6 +13,32 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use(keystoreProperties::load)
 }
 
+// ABIs the app supports, keyed by the name Flutter uses on the command line.
+// x86/x86_64 are deliberately absent: no shipped build targets an emulator, and
+// the libv2ray aar carries another 65 MB of native code for them.
+val supportedAbis = mapOf(
+    "android-arm" to "armeabi-v7a",
+    "android-arm64" to "arm64-v8a",
+)
+
+// `flutter build apk --target-platform android-arm64` and `--split-per-abi`
+// both arrive here as a -Ptarget-platform property. With no property (a plain
+// `flutter build apk`) the build stays universal across both ARM ABIs.
+val requestedAbis: List<String> =
+    (project.findProperty("target-platform") as String?)
+        ?.split(",")
+        ?.mapNotNull { supportedAbis[it.trim()] }
+        ?.takeIf { it.isNotEmpty() }
+        ?: supportedAbis.values.toList()
+
+// defaultConfig.ndk.abiFilters does NOT filter native libraries that arrive
+// inside a dependency, which is exactly where the 30 MB libv2ray cores come
+// from -- an arm64-only build still packaged the arm32 one. Excluding the
+// unwanted ABIs at packaging time is the mechanism that actually works; it is
+// how the aar's x86 libraries were already being dropped.
+val excludedAbis = supportedAbis.values.toSet() + setOf("x86", "x86_64") -
+    requestedAbis.toSet()
+
 android {
     namespace = "com.chrnet.vpn"
     compileSdk = flutter.compileSdkVersion
@@ -46,17 +72,11 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-        }
     }
 
     packaging {
         jniLibs {
-            excludes += setOf(
-                "**/x86/*.so",
-                "**/x86_64/*.so",
-            )
+            excludes += excludedAbis.map { "**/$it/*.so" }.toSet()
         }
     }
 
@@ -66,6 +86,16 @@ android {
             if (releaseSigning.storeFile != null) {
                 signingConfig = releaseSigning
             }
+
+            // Everything the app actually reaches at runtime is kept by
+            // proguard-rules.pro; the rest of the dex and the unused resources
+            // pulled in by ML Kit and the support libraries can go.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

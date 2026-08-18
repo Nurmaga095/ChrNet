@@ -1,440 +1,243 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+
 import '../../core/models/vpn_stats.dart';
+import '../perf.dart';
 import '../theme/app_theme.dart';
 
+/// The connect/disconnect control.
+///
+/// One circle, one ring, one icon. The ring carries all the state: static and
+/// faint when idle, a sweeping arc while the tunnel comes up, and a solid
+/// coloured halo once connected. No gradients, no stacked glows — on a dark and
+/// a light background alike the shape reads the same.
 class PowerButton extends StatefulWidget {
   final VpnStatus status;
   final VoidCallback onTap;
-  final double scale;
+
+  /// Diameter of the outer ring in logical pixels.
+  final double size;
 
   const PowerButton({
     super.key,
     required this.status,
     required this.onTap,
-    this.scale = 1.0,
-  }) : assert(scale > 0);
+    this.size = 176,
+  }) : assert(size > 0);
 
   @override
   State<PowerButton> createState() => _PowerButtonState();
 }
 
 class _PowerButtonState extends State<PowerButton>
-    with TickerProviderStateMixin {
-  late AnimationController _pulseController;
-  late AnimationController _rippleController;
-  late AnimationController _spinController;
-  late Animation<double> _pulseAnim;
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spin;
+  bool _pressed = false;
+
+  bool get _isBusy =>
+      widget.status == VpnStatus.connecting ||
+      widget.status == VpnStatus.disconnecting;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
+    _spin = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1400),
     );
-    _rippleController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2200),
-    );
-    _spinController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    );
-    _pulseAnim = Tween<double>(begin: 0.94, end: 1.06).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-    _updateAnimations();
+    AppPerf.instance.addListener(_syncAnimation);
+    _syncAnimation();
   }
 
   @override
   void didUpdateWidget(PowerButton old) {
     super.didUpdateWidget(old);
-    if (old.status != widget.status) _updateAnimations();
+    if (old.status != widget.status) _syncAnimation();
   }
 
-  void _updateAnimations() {
-    if (widget.status == VpnStatus.connecting ||
-        widget.status == VpnStatus.disconnecting) {
-      _pulseController.repeat(reverse: true);
-      _rippleController.repeat();
-      _spinController.repeat();
-    } else if (widget.status == VpnStatus.connected) {
-      _pulseController.stop();
-      _pulseController.reset();
-      _rippleController.repeat();
-      _spinController.stop();
-      _spinController.reset();
-    } else {
-      _pulseController.stop();
-      _pulseController.reset();
-      _rippleController.stop();
-      _rippleController.reset();
-      _spinController.stop();
-      _spinController.reset();
+  /// The sweep runs only while connecting — it is a progress indicator, so it
+  /// survives reduced motion. The connected halo is static by design.
+  void _syncAnimation() {
+    if (!mounted) return;
+    if (_isBusy) {
+      if (!_spin.isAnimating) _spin.repeat();
+    } else if (_spin.isAnimating) {
+      _spin
+        ..stop()
+        ..reset();
     }
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
-    _rippleController.dispose();
-    _spinController.dispose();
+    AppPerf.instance.removeListener(_syncAnimation);
+    _spin.dispose();
     super.dispose();
   }
 
-  List<Color> _gradientColors(bool isDark) {
-    switch (widget.status) {
-      case VpnStatus.connected:
-        return isDark
-            ? [const Color(0xFF34D399), const Color(0xFF0F766E)]
-            : [const Color(0xFFE7FFF6), const Color(0xFF94E7C4)];
-      case VpnStatus.connecting:
-      case VpnStatus.disconnecting:
-        return isDark
-            ? [const Color(0xFF5EEAD4), const Color(0xFF0EA5E9)]
-            : [const Color(0xFFF0F8FF), const Color(0xFFB8D9FF)];
-      case VpnStatus.error:
-        return isDark
-            ? [const Color(0xFFFF8A80), const Color(0xFFE53935)]
-            : [const Color(0xFFFFF1EF), const Color(0xFFF6B2AA)];
-      case VpnStatus.disconnected:
-        return isDark
-            ? [const Color(0xFF55607F), const Color(0xFF262C46)]
-            : [const Color(0xFFF9FBFF), const Color(0xFFDCE5FF)];
-    }
-  }
-
-  Color _glowColor(bool isDark) {
-    switch (widget.status) {
-      case VpnStatus.connected:
-        return isDark ? const Color(0xFF34D399) : const Color(0xFF2BC48E);
-      case VpnStatus.connecting:
-      case VpnStatus.disconnecting:
-        return isDark ? const Color(0xFF4FD8FF) : const Color(0xFF5D9CFF);
-      case VpnStatus.error:
-        return AppColors.error;
-      case VpnStatus.disconnected:
-        return isDark ? const Color(0xFF6B789E) : const Color(0xFF9EB5E8);
-    }
-  }
-
-  List<Color> _innerGradientColors(bool isDark) {
-    switch (widget.status) {
-      case VpnStatus.connected:
-        return isDark
-            ? [const Color(0xFF1E8E73), const Color(0xFF0B4E50)]
-            : [const Color(0xFF65D9AA), const Color(0xFF149E74)];
-      case VpnStatus.connecting:
-      case VpnStatus.disconnecting:
-        return isDark
-            ? [const Color(0xFF1294A8), const Color(0xFF164C95)]
-            : [const Color(0xFF8BC3FF), const Color(0xFF3E7FFF)];
-      case VpnStatus.error:
-        return isDark
-            ? [const Color(0xFFD85A57), const Color(0xFF8E2525)]
-            : [const Color(0xFFF28D83), const Color(0xFFD94B42)];
-      case VpnStatus.disconnected:
-        return isDark
-            ? [const Color(0xFF39415F), const Color(0xFF171C31)]
-            : [const Color(0xFFEEF4FF), const Color(0xFFD0DCFA)];
-    }
-  }
-
-  Color _iconColor(bool isDark) {
-    if (isDark) return Colors.white;
-    switch (widget.status) {
-      case VpnStatus.connected:
-        return Colors.white;
-      case VpnStatus.connecting:
-      case VpnStatus.disconnecting:
-        return Colors.white;
-      case VpnStatus.error:
-        return Colors.white;
-      case VpnStatus.disconnected:
-        return AppColors.accentDim;
-    }
-  }
+  Color _stateColor(AppColors c) => switch (widget.status) {
+        VpnStatus.connected => c.connectedText,
+        VpnStatus.connecting || VpnStatus.disconnecting => c.accentText,
+        VpnStatus.error => c.errorText,
+        VpnStatus.disconnected => c.textSecondary,
+      };
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final glowColor = _glowColor(isDark);
-    final gradientColors = _gradientColors(isDark);
-    final innerGradientColors = _innerGradientColors(isDark);
-    final iconColor = _iconColor(isDark);
+    final c = AppColors.of(context);
+    final color = _stateColor(c);
+    final isConnected = widget.status == VpnStatus.connected;
+    final size = widget.size;
+    final coreSize = size * 0.72;
 
-    return GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedBuilder(
-        animation: Listenable.merge(
-            [_pulseController, _rippleController, _spinController]),
-        builder: (context, _) {
-          final isTransitioning = widget.status == VpnStatus.connecting ||
-              widget.status == VpnStatus.disconnecting;
-          final scale = isTransitioning ? _pulseAnim.value : 1.0;
-          final size = 210 * widget.scale;
-          final arcSize = 148 * widget.scale;
-          final coreButtonSize = 126 * widget.scale;
-          final innerButtonSize = 104 * widget.scale;
-          final progressSize = 40 * widget.scale;
-          final iconSize = 56 * widget.scale;
-
-          return Transform.scale(
-            scale: scale,
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 154 * widget.scale,
-                    height: 154 * widget.scale,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          glowColor.withValues(
-                            alpha: widget.status == VpnStatus.disconnected
-                                ? (isDark ? 0.12 : 0.16)
-                                : (isDark ? 0.22 : 0.18),
-                          ),
-                          Colors.transparent,
-                        ],
+    return Semantics(
+      button: true,
+      label: isConnected ? 'Отключить VPN' : 'Подключить VPN',
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed ? 0.96 : 1,
+          duration: AppMotion.fast,
+          curve: AppMotion.curve,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Outer ring — the state indicator.
+                if (_isBusy)
+                  AnimatedBuilder(
+                    animation: _spin,
+                    builder: (_, __) => CustomPaint(
+                      size: Size.square(size),
+                      painter: _SweepPainter(
+                        progress: _spin.value,
+                        trackColor: c.border,
+                        arcColor: color,
                       ),
                     ),
-                  ),
-
-                  // ── Ripple rings ──────────────────────────────────────────
-                  if (widget.status == VpnStatus.connected ||
-                      widget.status == VpnStatus.connecting)
-                    CustomPaint(
-                      size: Size(size, size),
-                      painter: _RipplePainter(
-                        color: glowColor,
-                        progress: _rippleController.value,
-                        scale: widget.scale,
-                      ),
-                    ),
-
-                  // ── Static faint rings ────────────────────────────────────
+                  )
+                else
                   CustomPaint(
-                    size: Size(size, size),
-                    painter: _StaticRingsPainter(
-                      color: glowColor,
-                      isActive: widget.status != VpnStatus.disconnected,
-                      scale: widget.scale,
+                    size: Size.square(size),
+                    painter: _RingPainter(
+                      color: isConnected
+                          ? color.withValues(alpha: 0.35)
+                          : c.border,
+                      width: isConnected ? 4 : 2,
                     ),
                   ),
 
-                  // ── Spinning arc (connecting) ─────────────────────────────
-                  if (isTransitioning)
-                    Transform.rotate(
-                      angle: _spinController.value * 2 * math.pi,
-                      child: CustomPaint(
-                        size: Size(arcSize, arcSize),
-                        painter:
-                            _ArcPainter(color: glowColor, scale: widget.scale),
-                      ),
-                    ),
-
-                  // ── Main button ───────────────────────────────────────────
-                  Container(
-                    width: coreButtonSize,
-                    height: coreButtonSize,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: gradientColors,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: glowColor.withValues(
-                              alpha: widget.status == VpnStatus.disconnected
-                                  ? (isDark ? 0.25 : 0.18)
-                                  : (isDark ? 0.5 : 0.26)),
-                          blurRadius: (isDark ? 34 : 28) * widget.scale,
-                          spreadRadius: (isDark ? 4 : 1.5) * widget.scale,
-                          offset: Offset(0, (isDark ? 12 : 10) * widget.scale),
-                        ),
-                        BoxShadow(
-                          color: isDark
-                              ? Colors.black.withValues(alpha: 0.18)
-                              : const Color(0xFF9FB2D9).withValues(alpha: 0.24),
-                          blurRadius: (isDark ? 24 : 26) * widget.scale,
-                          offset: Offset(0, (isDark ? 10 : 12) * widget.scale),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Container(
-                        width: innerButtonSize,
-                        height: innerButtonSize,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: innerGradientColors,
-                          ),
-                        ),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Positioned(
-                              top: 14 * widget.scale,
-                              child: Container(
-                                width: 54 * widget.scale,
-                                height: 18 * widget.scale,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(999),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.white.withValues(
-                                        alpha: isDark ? 0.22 : 0.54,
-                                      ),
-                                      Colors.white.withValues(
-                                        alpha: isDark ? 0.02 : 0.08,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                // Core.
+                AnimatedContainer(
+                  duration: AppMotion.normal,
+                  curve: AppMotion.curve,
+                  width: coreSize,
+                  height: coreSize,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isConnected ? color : c.surface,
+                    border: isConnected
+                        ? null
+                        : Border.all(color: c.border, width: 1),
+                    boxShadow: isConnected
+                        ? [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.32),
+                              blurRadius: 28,
+                              spreadRadius: 2,
                             ),
-                            if (isTransitioning)
-                              SizedBox(
-                                width: progressSize,
-                                height: progressSize,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 3 * widget.scale,
-                                  valueColor: const AlwaysStoppedAnimation(
-                                      Colors.white),
-                                ),
-                              )
-                            else
-                              Icon(
-                                Icons.power_settings_new_rounded,
-                                size: iconSize,
-                                color: iconColor.withValues(
-                                  alpha: widget.status == VpnStatus.disconnected
-                                      ? (isDark ? 0.92 : 1)
-                                      : 1,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
+                          ]
+                        : c.cardShadow,
                   ),
-                ],
-              ),
+                  child: Icon(
+                    Icons.power_settings_new_rounded,
+                    size: coreSize * 0.36,
+                    color: isConnected ? Colors.white : color,
+                  ),
+                ),
+              ],
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
 }
 
-// ─── Painters ─────────────────────────────────────────────────────────────────
-
-class _StaticRingsPainter extends CustomPainter {
+class _RingPainter extends CustomPainter {
   final Color color;
-  final bool isActive;
-  final double scale;
+  final double width;
 
-  _StaticRingsPainter({
-    required this.color,
-    required this.isActive,
-    required this.scale,
-  });
+  const _RingPainter({required this.color, required this.width});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radii = [68.0 * scale, 82.0 * scale, 96.0 * scale];
-    for (int i = 0; i < radii.length; i++) {
-      final opacity = isActive
-          ? (0.18 - i * 0.05).clamp(0.0, 1.0)
-          : (0.06 - i * 0.015).clamp(0.0, 1.0);
-      canvas.drawCircle(
-        center,
-        radii[i],
-        Paint()
-          ..color = color.withValues(alpha: opacity)
-          ..strokeWidth = 1.2 * scale
-          ..style = PaintingStyle.stroke,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_StaticRingsPainter old) =>
-      old.color != color || old.isActive != isActive;
-}
-
-class _RipplePainter extends CustomPainter {
-  final Color color;
-  final double progress;
-  final double scale;
-
-  _RipplePainter({
-    required this.color,
-    required this.progress,
-    required this.scale,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    for (int i = 0; i < 2; i++) {
-      final p = (progress + i * 0.5) % 1.0;
-      final radius = 64.0 * scale + p * 46.0 * scale;
-      final opacity = (0.4 * (1 - p)).clamp(0.0, 1.0);
-      canvas.drawCircle(
-        center,
-        radius,
-        Paint()
-          ..color = color.withValues(alpha: opacity)
-          ..strokeWidth = 2.0 * scale
-          ..style = PaintingStyle.stroke,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_RipplePainter old) =>
-      old.progress != progress || old.color != color;
-}
-
-class _ArcPainter extends CustomPainter {
-  final Color color;
-  final double scale;
-
-  _ArcPainter({required this.color, required this.scale});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 4 * scale;
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      math.pi * 1.3,
-      false,
+    final radius = (size.shortestSide - width) / 2;
+    canvas.drawCircle(
+      size.center(Offset.zero),
+      radius,
       Paint()
-        ..color = color.withValues(alpha: 0.85)
-        ..strokeWidth = 3.5 * scale
         ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round,
+        ..strokeWidth = width
+        ..color = color,
     );
   }
 
   @override
-  bool shouldRepaint(_ArcPainter old) => old.color != color;
+  bool shouldRepaint(_RingPainter old) =>
+      old.color != color || old.width != width;
+}
+
+class _SweepPainter extends CustomPainter {
+  final double progress;
+  final Color trackColor;
+  final Color arcColor;
+
+  const _SweepPainter({
+    required this.progress,
+    required this.trackColor,
+    required this.arcColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const stroke = 4.0;
+    final rect = Rect.fromCircle(
+      center: size.center(Offset.zero),
+      radius: (size.shortestSide - stroke) / 2,
+    );
+
+    canvas.drawCircle(
+      rect.center,
+      rect.width / 2,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..color = trackColor,
+    );
+
+    canvas.drawArc(
+      rect,
+      progress * math.pi * 2 - math.pi / 2,
+      math.pi * 0.55,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..color = arcColor,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SweepPainter old) =>
+      old.progress != progress ||
+      old.trackColor != trackColor ||
+      old.arcColor != arcColor;
 }

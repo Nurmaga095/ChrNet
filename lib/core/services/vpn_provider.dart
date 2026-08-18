@@ -165,6 +165,12 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
     } on PlatformException catch (e) {
       _errorMessage = e.message ?? 'Ошибка подключения';
       _setStatus(VpnStatus.error);
+    } on UnsupportedError catch (e) {
+      // Raised for servers saved before the app narrowed to VLESS. The message
+      // is already user-facing, so show it instead of wrapping it in "Ошибка
+      // подключения: Unsupported operation: ...".
+      _errorMessage = e.message?.toString() ?? 'Протокол не поддерживается';
+      _setStatus(VpnStatus.error);
     } catch (e) {
       _errorMessage = 'Ошибка подключения: $e';
       _setStatus(VpnStatus.error);
@@ -197,6 +203,12 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
       _setStatus(VpnStatus.error);
     } on PlatformException catch (e) {
       _errorMessage = e.message ?? 'Ошибка переподключения';
+      _setStatus(VpnStatus.error);
+    } on UnsupportedError catch (e) {
+      // Raised for servers saved before the app narrowed to VLESS. The message
+      // is already user-facing, so show it instead of wrapping it in "Ошибка
+      // переподключения: Unsupported operation: ...".
+      _errorMessage = e.message?.toString() ?? 'Протокол не поддерживается';
       _setStatus(VpnStatus.error);
     } catch (e) {
       _errorMessage = 'Ошибка переподключения: $e';
@@ -233,8 +245,14 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
   String _buildSelectedServerConfig() {
     final mode = StorageService.getWindowsVpnMode();
     final ruRouting = StorageService.getRuRouting();
+    final isAndroid =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isWindows =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    if (isAndroid) {
+      return XrayConfigBuilder.buildAndroidVpnConfig(_selectedServer!,
+          statsApi: true, enableRuRouting: ruRouting);
+    }
     if (isWindows && mode == 'tunnel') {
       return XrayConfigBuilder.buildTunnelConfig(_selectedServer!,
           statsApi: true, enableRuRouting: ruRouting);

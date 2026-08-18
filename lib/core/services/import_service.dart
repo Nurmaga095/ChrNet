@@ -280,6 +280,18 @@ class ImportService {
     final configs = ConfigParser.parseText(text);
 
     if (configs.isEmpty) {
+      // A subscription that only serves retired protocols now parses to
+      // nothing. Saying "no valid config" there would send the user hunting
+      // for a typo that isn't the problem.
+      if (_containsOnlyRetiredSchemes(text)) {
+        return const ImportResponse(
+          result: ImportResult.noConfig,
+          configs: [],
+          error: 'Приложение поддерживает только VLESS и JSON-конфиги. '
+              'Ключи VMess, Trojan, Shadowsocks и Hysteria больше не работают.',
+        );
+      }
+
       return const ImportResponse(
         result: ImportResult.noConfig,
         configs: [],
@@ -385,14 +397,28 @@ class ImportService {
     if (ConfigParser.parseText(normalized).isNotEmpty) {
       return true;
     }
-    final lower = normalized.toLowerCase();
-    return lower.startsWith('vless://') ||
-        lower.startsWith('vmess://') ||
-        lower.startsWith('trojan://') ||
-        lower.startsWith('ss://') ||
-        lower.startsWith('hysteria2://') ||
-        lower.startsWith('hysteria://') ||
-        lower.startsWith('hy2://');
+    return normalized.toLowerCase().startsWith('vless://');
+  }
+
+  /// True when the text is a key the app used to accept but no longer does.
+  ///
+  /// Import treats this separately from plain garbage so the user is told the
+  /// protocol was dropped, rather than left staring at "не удалось распознать".
+  static bool isRetiredVpnUri(String text) {
+    final normalized = _normalizeImportText(text);
+    return normalized.isNotEmpty && ConfigParser.isRetiredScheme(normalized);
+  }
+
+  /// Whether every key in the blob uses a protocol the app has dropped.
+  static bool _containsOnlyRetiredSchemes(String text) {
+    var sawRetired = false;
+    for (final line in text.split(RegExp(r'[\r\n]+'))) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      if (!ConfigParser.isRetiredScheme(trimmed)) return false;
+      sawRetired = true;
+    }
+    return sawRetired;
   }
 
   /// Проверяет, можно ли импортировать текст из QR/буфера.

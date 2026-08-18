@@ -107,9 +107,21 @@ Push-Location $projectRoot
 try {
     $version = Get-AppVersion
     $tag = "v$version"
-    $versionedInstaller = Join-Path $projectRoot "dist\ChrNet-Setup-$version.exe"
-    $latestInstaller = Join-Path $projectRoot "dist\ChrNet-Setup-latest.exe"
-    $apkPath = Join-Path $projectRoot "build\app\outputs\flutter-apk\app-release.apk"
+    $distDir = Join-Path $projectRoot "dist"
+    if (-not (Test-Path $distDir)) {
+        New-Item -ItemType Directory -Path $distDir | Out-Null
+    }
+    $versionedInstaller = Join-Path $distDir "ChrNet-Setup-$version.exe"
+    $latestInstaller = Join-Path $distDir "ChrNet-Setup-latest.exe"
+    $apkOutDir = Join-Path $projectRoot "build\app\outputs\flutter-apk"
+    # One APK per ABI instead of a universal build. A universal APK carries both
+    # copies of the ~30 MB native core, so every user downloads ~34 MB they can
+    # never execute. arm64 is the default download; arm32 stays for the few
+    # remaining 32-bit devices.
+    $apkVariants = @(
+        @{ Built = "app-arm64-v8a-release.apk"; Asset = "ChrNet-Android-$version-arm64.apk" },
+        @{ Built = "app-armeabi-v7a-release.apk"; Asset = "ChrNet-Android-$version-arm32.apk" }
+    )
     $installerScript = Join-Path $projectRoot "scripts\build-installer.ps1"
 
     Write-Host "==> Checking GitHub auth"
@@ -130,19 +142,32 @@ try {
     Write-Host "==> Updating latest Windows installer"
     Copy-Item $versionedInstaller $latestInstaller -Force
 
-    Write-Host "==> Building Android APK"
-    flutter build apk --release
+    Write-Host "==> Building Android APKs (one per ABI)"
+    # --target-platform is what keeps a stub x86_64 APK out of the outputs:
+    # without it Flutter also emits one, and it installs but has no native core.
+    flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
     if ($LASTEXITCODE -ne 0) {
         throw "Android APK build failed"
     }
-    if (-not (Test-Path $apkPath)) {
-        throw "APK not found: $apkPath"
+
+    $apkUploadPaths = @()
+    foreach ($variant in $apkVariants) {
+        $builtApk = Join-Path $apkOutDir $variant.Built
+        if (-not (Test-Path $builtApk)) {
+            throw "APK not found: $builtApk"
+        }
+
+        $assetApk = Join-Path $distDir $variant.Asset
+        Copy-Item $builtApk $assetApk -Force
+        $sizeMb = [math]::Round((Get-Item $assetApk).Length / 1MB, 1)
+        Write-Host "    $($variant.Asset) - $sizeMb MB"
+        $apkUploadPaths += $assetApk
     }
 
     Remove-ReleaseAssetIfExists -Tag $tag -AssetName "ChrNet-Setup-$version.exe"
 
     Write-Host "==> Uploading release assets"
-    gh release upload $tag $latestInstaller $apkPath --repo $repo --clobber
+    gh release upload $tag $latestInstaller @apkUploadPaths --repo $repo --clobber
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to upload release assets"
     }
@@ -151,7 +176,9 @@ try {
     Write-Host "Release updated:"
     Write-Host "  Tag: $tag"
     Write-Host "  Asset: ChrNet-Setup-latest.exe"
-    Write-Host "  Asset: app-release.apk"
+    foreach ($variant in $apkVariants) {
+        Write-Host "  Asset: $($variant.Asset)"
+    }
 }
 finally {
     Pop-Location

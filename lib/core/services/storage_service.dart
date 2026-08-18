@@ -183,6 +183,31 @@ class StorageService {
     await _settingsB.put('ruRouting', value);
   }
 
+  /// One of `system`, `light`, `dark`. Defaults to following the OS setting.
+  static String getThemeMode() {
+    final stored = _settingsB.get('themeMode') as String?;
+    return const {'system', 'light', 'dark'}.contains(stored)
+        ? stored!
+        : 'system';
+  }
+
+  static Future<void> setThemeMode(String mode) async {
+    await _settingsB.put('themeMode', mode);
+  }
+
+  /// `null` means "follow the platform default" — see [AppPerf.liteEffects].
+  /// Only an explicit user choice is stored, so devices keep tracking the
+  /// default if we ever change it.
+  static bool? getLiteEffects() => _settingsB.get('liteEffects') as bool?;
+
+  static Future<void> setLiteEffects(bool? value) async {
+    if (value == null) {
+      await _settingsB.delete('liteEffects');
+    } else {
+      await _settingsB.put('liteEffects', value);
+    }
+  }
+
   static String getWindowsVpnMode() =>
       (_settingsB.get('windowsVpnMode') as String?) ?? 'tunnel';
 

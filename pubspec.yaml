@@ -3,7 +3,7 @@ description: ChrNet VPN - secure and fast VPN client
 publish_to: 'none'
 # Single source of truth for the app version and build number.
 # Update only this value for each release; Android, iOS, and Windows builds read from here.
-version: 1.1.0+7
+version: 2.0.0+8
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -33,6 +33,9 @@ dependencies:
 
   # URL launcher
   url_launcher: ^6.2.5
+
+  # Country flags for the server list. Windows and web have no flag glyphs in
+  # their emoji fonts, so the flags have to be bundled to show up there.
   country_flags: ^4.1.2
   package_info_plus: ^9.0.0
 
@@ -53,5 +56,6 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/images/
+  # NOTE: assets/images/icon.png is intentionally NOT bundled. It is only the
+  # source image for flutter_launcher_icons, which reads it at build time.
+  # Bundling it added 1.6 MB of dead weight to every APK.

@@ -19,24 +19,26 @@ class ConfigParser {
       if (lower.startsWith('vless://')) {
         return _parseVless(trimmed, subscriptionOrder: subscriptionOrder);
       }
-      if (lower.startsWith('vmess://')) {
-        return _parseVmess(trimmed, subscriptionOrder: subscriptionOrder);
-      }
-      if (lower.startsWith('trojan://')) {
-        return _parseTrojan(trimmed, subscriptionOrder: subscriptionOrder);
-      }
-      if (lower.startsWith('ss://')) {
-        return _parseShadowsocks(trimmed, subscriptionOrder: subscriptionOrder);
-      }
-      if (lower.startsWith('hysteria2://') ||
-          lower.startsWith('hysteria://') ||
-          lower.startsWith('hy2://')) {
-        return _parseHysteria2(trimmed, subscriptionOrder: subscriptionOrder);
-      }
     } catch (_) {
       return null;
     }
     return null;
+  }
+
+  /// Schemes the app used to accept, kept only so import can tell the user
+  /// "this key is no longer supported" instead of silently skipping the line.
+  static const List<String> retiredSchemes = [
+    'vmess://',
+    'trojan://',
+    'ss://',
+    'hysteria2://',
+    'hysteria://',
+    'hy2://',
+  ];
+
+  static bool isRetiredScheme(String value) {
+    final lower = value.trim().toLowerCase();
+    return retiredSchemes.any(lower.startsWith);
   }
 
   /// Парсит произвольный текст, который может содержать URI или JSON-конфиги.
@@ -113,174 +115,6 @@ class ConfigParser {
     );
   }
 
-  // ─── VMESS ────────────────────────────────────────────────────────────────
-  // vmess://base64(json)
-  static ServerConfig _parseVmess(String uri, {int? subscriptionOrder}) {
-    final base64Part = uri.substring('vmess://'.length);
-    final json = utf8.decode(base64Decode(_padBase64(base64Part)));
-    final map = jsonDecode(json) as Map<String, dynamic>;
-
-    final host = map['add']?.toString() ?? '';
-    final port = int.tryParse(map['port']?.toString() ?? '0') ?? 0;
-    final uuid = map['id']?.toString() ?? '';
-    final name = map['ps']?.toString() ?? '$host:$port';
-
-    final extras = <String, String>{
-      if (map['net'] != null) 'type': map['net'].toString(),
-      if (map['tls'] != null) 'security': map['tls'].toString(),
-      if (map['sni'] != null) 'sni': map['sni'].toString(),
-      if (map['path'] != null) 'path': map['path'].toString(),
-      if (map['host'] != null) 'host': map['host'].toString(),
-      if (map['v'] != null) 'v': map['v'].toString(),
-    };
-
-    return ServerConfig(
-      id: _generateId(),
-      name: name,
-      host: host,
-      port: port,
-      protocol: 'vmess',
-      uuid: uuid,
-      rawUri: uri,
-      extras: extras,
-      addedAt: DateTime.now(),
-      subscriptionOrder: subscriptionOrder,
-    );
-  }
-
-  // ─── TROJAN ───────────────────────────────────────────────────────────────
-  // trojan://password@host:port?sni=example.com#name
-  static ServerConfig _parseTrojan(String uri, {int? subscriptionOrder}) {
-    final withoutScheme = uri.substring('trojan://'.length);
-    final hashIdx = withoutScheme.lastIndexOf('#');
-    final name = hashIdx >= 0
-        ? Uri.decodeComponent(withoutScheme.substring(hashIdx + 1))
-        : '';
-    final main =
-        hashIdx >= 0 ? withoutScheme.substring(0, hashIdx) : withoutScheme;
-
-    final atIdx = main.indexOf('@');
-    final password = main.substring(0, atIdx);
-    final hostPort = main.substring(atIdx + 1);
-
-    final qIdx = hostPort.indexOf('?');
-    final hostPortOnly = qIdx >= 0 ? hostPort.substring(0, qIdx) : hostPort;
-    final queryStr = qIdx >= 0 ? hostPort.substring(qIdx + 1) : '';
-
-    final (host, port) = _splitHostPort(hostPortOnly);
-    final extras = Map<String, String>.from(Uri.splitQueryString(queryStr));
-
-    return ServerConfig(
-      id: _generateId(),
-      name: name,
-      host: host,
-      port: port,
-      protocol: 'trojan',
-      uuid: password,
-      rawUri: uri,
-      extras: extras,
-      addedAt: DateTime.now(),
-      subscriptionOrder: subscriptionOrder,
-    );
-  }
-
-  // ─── SHADOWSOCKS ──────────────────────────────────────────────────────────
-  // ss://base64(method:password)@host:port#name
-  static ServerConfig _parseShadowsocks(String uri, {int? subscriptionOrder}) {
-    final withoutScheme = uri.substring('ss://'.length);
-    final hashIdx = withoutScheme.lastIndexOf('#');
-    final name = hashIdx >= 0
-        ? Uri.decodeComponent(withoutScheme.substring(hashIdx + 1))
-        : '';
-    final main =
-        hashIdx >= 0 ? withoutScheme.substring(0, hashIdx) : withoutScheme;
-
-    final atIdx = main.lastIndexOf('@');
-    String credentials;
-    String hostPort;
-
-    if (atIdx >= 0) {
-      credentials = main.substring(0, atIdx);
-      hostPort = main.substring(atIdx + 1);
-    } else {
-      // Старый формат: base64(method:password@host:port)
-      final decoded = utf8.decode(base64Decode(_padBase64(main)));
-      final parts = decoded.split('@');
-      credentials = parts[0];
-      hostPort = parts[1];
-    }
-
-    // credentials может быть base64(method:password) или method:password
-    String methodPass = credentials;
-    try {
-      methodPass = utf8.decode(base64Decode(_padBase64(credentials)));
-    } catch (_) {}
-
-    final colonIdx = methodPass.indexOf(':');
-    final method = colonIdx >= 0 ? methodPass.substring(0, colonIdx) : '';
-    final password =
-        colonIdx >= 0 ? methodPass.substring(colonIdx + 1) : methodPass;
-
-    final (host, port) = _splitHostPort(hostPort);
-
-    return ServerConfig(
-      id: _generateId(),
-      name: name,
-      host: host,
-      port: port,
-      protocol: 'ss',
-      uuid: password,
-      rawUri: uri,
-      extras: {'method': method},
-      addedAt: DateTime.now(),
-      subscriptionOrder: subscriptionOrder,
-    );
-  }
-
-  // ─── HYSTERIA2 ───────────────────────────────────────────────────────────
-  // hysteria2://password@host:port?sni=example.com&insecure=1#name
-  // Some subscriptions use hysteria:// for Hysteria2 links.
-  static ServerConfig _parseHysteria2(String uri, {int? subscriptionOrder}) {
-    final lower = uri.toLowerCase();
-    final scheme = lower.startsWith('hy2://')
-        ? 'hy2://'
-        : lower.startsWith('hysteria://')
-            ? 'hysteria://'
-            : 'hysteria2://';
-    final withoutScheme = uri.substring(scheme.length);
-    final hashIdx = withoutScheme.lastIndexOf('#');
-    final name = hashIdx >= 0
-        ? Uri.decodeComponent(withoutScheme.substring(hashIdx + 1))
-        : '';
-    final main =
-        hashIdx >= 0 ? withoutScheme.substring(0, hashIdx) : withoutScheme;
-
-    final atIdx = main.indexOf('@');
-    final password =
-        atIdx >= 0 ? Uri.decodeComponent(main.substring(0, atIdx)) : '';
-    final hostPort = atIdx >= 0 ? main.substring(atIdx + 1) : main;
-
-    final qIdx = hostPort.indexOf('?');
-    final hostPortOnly = qIdx >= 0 ? hostPort.substring(0, qIdx) : hostPort;
-    final queryStr = qIdx >= 0 ? hostPort.substring(qIdx + 1) : '';
-
-    final (host, port) = _splitHostPort(hostPortOnly);
-    final extras = Map<String, String>.from(Uri.splitQueryString(queryStr));
-
-    return ServerConfig(
-      id: _generateId(),
-      name: name,
-      host: host,
-      port: port,
-      protocol: 'hysteria2',
-      uuid: password,
-      rawUri: uri,
-      extras: extras,
-      addedAt: DateTime.now(),
-      subscriptionOrder: subscriptionOrder,
-    );
-  }
-
   // ─── Helpers ──────────────────────────────────────────────────────────────
   static (String host, int port) _splitHostPort(String hostPort) {
     // IPv6: [::1]:8080
@@ -295,12 +129,6 @@ class ConfigParser {
     final host = hostPort.substring(0, idx);
     final port = int.tryParse(hostPort.substring(idx + 1)) ?? 443;
     return (host, port);
-  }
-
-  static String _padBase64(String s) {
-    final rem = s.length % 4;
-    if (rem == 0) return s;
-    return s + '=' * (4 - rem);
   }
 
   static List<String> _extractUriCandidates(String text) {
@@ -323,7 +151,7 @@ class ConfigParser {
     }
 
     final matcher = RegExp(
-      "(?:vless|vmess|trojan|ss|hysteria2|hysteria|hy2):\\/\\/[^\\s<>\"'`\\\\]+",
+      "vless:\\/\\/[^\\s<>\"'`\\\\]+",
       caseSensitive: false,
     );
     for (final match in matcher.allMatches(decoded)) {
@@ -358,14 +186,7 @@ class ConfigParser {
   }
 
   static bool _startsWithSupportedScheme(String value) {
-    final lower = value.toLowerCase();
-    return lower.startsWith('vless://') ||
-        lower.startsWith('vmess://') ||
-        lower.startsWith('trojan://') ||
-        lower.startsWith('ss://') ||
-        lower.startsWith('hysteria2://') ||
-        lower.startsWith('hysteria://') ||
-        lower.startsWith('hy2://');
+    return value.toLowerCase().startsWith('vless://');
   }
 
   static bool _looksLikeJson(String text) {
@@ -455,19 +276,11 @@ class ConfigParser {
     );
   }
 
+  /// The core only carries VLESS now, so a template whose proxy outbound is
+  /// anything else would import fine and then fail at connect time. Treating it
+  /// as "no proxy outbound found" makes the template be rejected at import.
   static bool _isProxyOutbound(Map<String, dynamic> outbound) {
-    final protocol = outbound['protocol']?.toString().trim().toLowerCase();
-    if (protocol == null || protocol.isEmpty) {
-      return false;
-    }
-    return !{
-      'freedom',
-      'blackhole',
-      'dns',
-      'socks',
-      'http',
-      'loopback',
-    }.contains(protocol);
+    return outbound['protocol']?.toString().trim().toLowerCase() == 'vless';
   }
 
   static ({String host, int port})? _extractEndpoint(
@@ -528,29 +341,6 @@ class ConfigParser {
           final user = users.first as Map<String, dynamic>;
           return user['id']?.toString() ?? user['email']?.toString() ?? '';
         }
-      }
-    }
-
-    final servers = settings['servers'];
-    if (servers is List &&
-        servers.isNotEmpty &&
-        servers.first is Map<String, dynamic>) {
-      final server = servers.first as Map<String, dynamic>;
-      return server['password']?.toString() ??
-          server['email']?.toString() ??
-          '';
-    }
-
-    final auth = settings['auth']?.toString() ?? '';
-    if (auth.isNotEmpty) {
-      return auth;
-    }
-
-    final streamSettings = outbound['streamSettings'];
-    if (streamSettings is Map<String, dynamic>) {
-      final hysteriaSettings = streamSettings['hysteriaSettings'];
-      if (hysteriaSettings is Map<String, dynamic>) {
-        return hysteriaSettings['auth']?.toString() ?? '';
       }
     }
 

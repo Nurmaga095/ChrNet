@@ -54,12 +54,14 @@ Supported import sources:
 - deep link: `chrnet://add/<url>`
 
 Supported config protocols currently visible in code:
-- VLESS
-- VMess
-- Trojan
-- Shadowsocks
-- Hysteria2 / HY2
-- Xray JSON configs from subscriptions / manual import
+- VLESS, over any Xray transport (tcp, ws, grpc, xhttp, mkcp, httpupgrade, h2)
+  with TLS or Reality
+- Xray JSON configs from subscriptions / manual import, provided their proxy
+  outbound is VLESS
+
+VMess, Trojan, Shadowsocks and Hysteria2 / HY2 were removed. Their schemes are
+listed in `ConfigParser.retiredSchemes` purely so import can tell the user the
+protocol was dropped instead of reporting an unrecognised key.
 
 ---
 
@@ -158,7 +160,8 @@ This section is the most important part of the memory.
 
 `lib/core/parsers/config_parser.dart`
 - parses single URIs and subscription payloads into `ServerConfig`
-- handles `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `hy2://`
+- handles `vless://` only; other schemes are matched by
+  `ConfigParser.isRetiredScheme` and rejected with an explanatory message
 - handles Remnawave-style `XRAY_JSON` payloads (JSON object / JSON array of configs)
 - generates IDs for parsed configs
 - this is where protocol parsing must be extended if new protocols are added
