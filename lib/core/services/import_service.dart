@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../models/server_config.dart';
@@ -117,13 +118,7 @@ class ImportService {
         );
       }
       final device = await DeviceService.getDeviceInfo();
-      final headers = <String, String>{
-        'User-Agent': 'ChrNet/1.0 (Android)',
-        if (device.deviceId.isNotEmpty) 'x-hwid': device.deviceId,
-        'x-device-os': 'Android',
-        if (device.osVersion.isNotEmpty) 'x-ver-os': device.osVersion,
-        if (device.model.isNotEmpty) 'x-device-model': device.model,
-      };
+      final headers = device.subscriptionHeaders;
 
       final primaryFetch =
           await _fetchSubscriptionResponse(uri, headers: headers);
@@ -192,6 +187,15 @@ class ImportService {
           result: ImportResult.noConfig,
           configs: [],
           error: 'Конфиги не найдены в ответе',
+        );
+      }
+
+      final rejection = hwidRejection(activeResponse.headers, configs);
+      if (rejection != null) {
+        return ImportResponse(
+          result: ImportResult.error,
+          configs: const [],
+          error: rejection,
         );
       }
 
@@ -476,6 +480,57 @@ class ImportService {
 
   static bool _containsJsonConfig(List<ServerConfig> configs) {
     return configs.any((config) => config.protocol.toLowerCase() == 'json');
+  }
+
+  /// Текст ошибки, если панель отклонила устройство, иначе `null`.
+  ///
+  /// Антишеринговые панели (Remnawave и аналоги) отвечают на такой запрос не
+  /// ошибкой, а `200` с конфигом-заглушкой, у которого вместо адреса стоит
+  /// `0.0.0.0`, а название — текст отказа. Без этой проверки заглушка
+  /// импортируется как обычный сервер.
+  @visibleForTesting
+  static String? hwidRejection(
+    Map<String, String> headers,
+    List<ServerConfig> configs,
+  ) {
+    final deviceLimit = _isTrueHeader(headers, 'x-hwid-limit-reached') ||
+        _isTrueHeader(headers, 'x-hwid-device-limit-reached');
+    if (deviceLimit) {
+      return 'Сервер подписки отклонил это устройство: достигнут лимит '
+          'устройств. Удалите лишнее устройство в личном кабинете и '
+          'повторите.';
+    }
+
+    final notSupported = _isTrueHeader(headers, 'x-hwid-not-supported');
+    if (!notSupported && !_isOnlyPlaceholders(configs)) {
+      return null;
+    }
+
+    return 'Сервер подписки не принял идентификатор устройства (HWID) и '
+        'вернул заглушку вместо серверов. Проверьте подписку в личном '
+        'кабинете или обратитесь в поддержку.';
+  }
+
+  static bool _isTrueHeader(Map<String, String> headers, String key) {
+    final value = _headerValue(headers, key)?.trim().toLowerCase();
+    return value == 'true' || value == '1';
+  }
+
+  static bool _isOnlyPlaceholders(List<ServerConfig> configs) {
+    if (configs.isEmpty) return false;
+    return configs.every(_isPlaceholderConfig);
+  }
+
+  static bool _isPlaceholderConfig(ServerConfig config) {
+    // 127.0.0.1 намеренно не в списке: локальный адрес встречается в рабочих
+    // самодельных конфигах, а 0.0.0.0 реальным адресом сервера быть не может.
+    const deadHosts = {'0.0.0.0', '::'};
+    final host = config.host.trim().toLowerCase();
+    if (host.isEmpty || deadHosts.contains(host)) return true;
+
+    final uuid = config.uuid.trim();
+    return uuid.isNotEmpty &&
+        uuid.replaceAll('-', '').replaceAll('0', '').isEmpty;
   }
 
   static Uri? _buildJsonSubscriptionUri(Uri uri) {

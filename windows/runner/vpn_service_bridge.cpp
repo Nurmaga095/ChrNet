@@ -92,6 +92,45 @@ std::string WideToUtf8(const std::wstring& value) {
   return out;
 }
 
+// Reads a REG_SZ value, or an empty string when it is missing.
+//
+// Always forced to the 64-bit registry view: the machine id lives there, and a
+// 32-bit build reading through the WOW64 redirector would see a different GUID.
+std::string ReadRegistryStringUtf8(const wchar_t* sub_key,
+                                   const wchar_t* value_name) {
+  wchar_t buffer[512] = {};
+  DWORD size = sizeof(buffer);
+  DWORD flags = RRF_RT_REG_SZ;
+#ifdef RRF_SUBKEY_WOW6464KEY
+  flags |= RRF_SUBKEY_WOW6464KEY;
+#endif
+  if (RegGetValueW(HKEY_LOCAL_MACHINE, sub_key, value_name, flags, nullptr,
+                   buffer, &size) != ERROR_SUCCESS) {
+    return "";
+  }
+  std::wstring value(buffer);
+  while (!value.empty() &&
+         (value.back() == L'\0' || value.back() == L' ' ||
+          value.back() == L'\r' || value.back() == L'\n')) {
+    value.pop_back();
+  }
+  return WideToUtf8(value);
+}
+
+DWORD ReadRegistryDword(const wchar_t* sub_key, const wchar_t* value_name) {
+  DWORD value = 0;
+  DWORD size = sizeof(value);
+  DWORD flags = RRF_RT_REG_DWORD;
+#ifdef RRF_SUBKEY_WOW6464KEY
+  flags |= RRF_SUBKEY_WOW6464KEY;
+#endif
+  if (RegGetValueW(HKEY_LOCAL_MACHINE, sub_key, value_name, flags, nullptr,
+                   &value, &size) != ERROR_SUCCESS) {
+    return 0;
+  }
+  return value;
+}
+
 std::wstring Utf8ToWide(const std::string& value) {
   if (value.empty()) return L"";
   int length = MultiByteToWideChar(CP_UTF8, 0, value.c_str(),
@@ -340,7 +379,7 @@ void VpnServiceBridge::HandleMethodCall(
   if (method == "getDeviceInfo") {
     flutter::EncodableMap info;
     info[flutter::EncodableValue("deviceId")] =
-        flutter::EncodableValue(GetComputerNameUtf8());
+        flutter::EncodableValue(GetMachineId());
     info[flutter::EncodableValue("osVersion")] =
         flutter::EncodableValue(GetWindowsVersion());
     info[flutter::EncodableValue("model")] =
@@ -1131,6 +1170,32 @@ std::string VpnServiceBridge::GetComputerNameUtf8() {
   return WideToUtf8(std::wstring(buffer, size));
 }
 
+std::string VpnServiceBridge::GetMachineId() {
+  // MachineGuid is generated once when Windows is installed and survives
+  // renaming the PC, so it is the stable identity subscription servers expect.
+  // The computer name is only a fallback for locked-down machines where the
+  // Cryptography key cannot be read.
+  auto machine_guid = ReadRegistryStringUtf8(
+      L"SOFTWARE\\Microsoft\\Cryptography", L"MachineGuid");
+  if (!machine_guid.empty()) return machine_guid;
+  return GetComputerNameUtf8();
+}
+
 std::string VpnServiceBridge::GetWindowsVersion() {
-  return "Windows";
+  constexpr wchar_t kCurrentVersionKey[] =
+      L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+  const auto build =
+      ReadRegistryStringUtf8(kCurrentVersionKey, L"CurrentBuildNumber");
+  const DWORD major =
+      ReadRegistryDword(kCurrentVersionKey, L"CurrentMajorVersionNumber");
+  if (major == 0) {
+    return build.empty() ? "Windows" : build;
+  }
+  const DWORD minor =
+      ReadRegistryDword(kCurrentVersionKey, L"CurrentMinorVersionNumber");
+
+  std::ostringstream version;
+  version << major << '.' << minor;
+  if (!build.empty()) version << '.' << build;
+  return version.str();
 }

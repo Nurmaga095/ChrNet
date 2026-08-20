@@ -99,8 +99,9 @@ class PrivacyDisclosureScreen extends StatelessWidget {
                       const SizedBox(height: AppSpacing.xl),
                       const _DisclosureBullet(
                         title: 'Что передается серверу подписки',
-                        body: 'HWID (Android ID), модель устройства, версия '
-                            'Android и User-Agent.',
+                        body: 'HWID (на Android — Android ID, на Windows — '
+                            'идентификатор установки системы), модель '
+                            'устройства, версия ОС и User-Agent.',
                       ),
                       const _DisclosureBullet(
                         title: 'Когда это происходит',
@@ -218,7 +219,8 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 title: 'Какие данные передаются',
                 body:
                     'При загрузке или обновлении подписки приложение отправляет на выбранный пользователем '
-                    'сервер подписки Android ID (HWID), модель устройства, версию Android и User-Agent. '
+                    'сервер подписки HWID (на Android — Android ID, на Windows — идентификатор установки '
+                    'системы), модель устройства, версию ОС и User-Agent. '
                     'Это используется для авторизации подписки и ограничения передачи доступа третьим лицам.',
               ),
               _PolicySection(

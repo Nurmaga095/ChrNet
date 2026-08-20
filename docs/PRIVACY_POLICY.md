@@ -25,9 +25,9 @@ When you add or update a subscription in the Android app, the app sends a reques
 
 During that request, the app may transmit the following technical data to the selected subscription server:
 
-- `HWID (Android ID)`
+- `HWID` (Android ID on Android, Windows installation identifier on desktop)
 - Device model
-- Android version
+- OS version
 - App `User-Agent`
 
 We use this transmission to support subscription authorization, anti-sharing controls, fraud prevention, and subscription compatibility checks.

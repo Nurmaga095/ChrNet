@@ -20,6 +20,7 @@ class StorageService {
       'https://www.gstatic.com/generate_204';
   static const String _privacyDisclosureVersionKey =
       'privacyDisclosureAcceptedVersion';
+  static const String _fallbackHwidKey = 'fallbackHwid';
 
   static late Box<String> _serversB;
   static late Box<String> _subsB;
@@ -276,5 +277,19 @@ class StorageService {
     String version,
   ) async {
     await _settingsB.put(_privacyDisclosureVersionKey, version);
+  }
+
+  /// HWID, выданный устройству локально.
+  ///
+  /// Используется только когда платформа не смогла сообщить свой собственный
+  /// идентификатор: подписочные серверы отклоняют запрос без HWID, поэтому
+  /// пустым его отправлять нельзя.
+  static String? getFallbackHwid() {
+    final hwid = (_settingsB.get(_fallbackHwidKey) as String?)?.trim();
+    return hwid == null || hwid.isEmpty ? null : hwid;
+  }
+
+  static Future<void> setFallbackHwid(String hwid) async {
+    await _settingsB.put(_fallbackHwidKey, hwid.trim());
   }
 }

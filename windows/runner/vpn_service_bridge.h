@@ -64,6 +64,7 @@ class VpnServiceBridge {
   void CleanupProxyIfChrNetOwned();
   void CleanupStaleTunnelRoutes();
   static std::string GetComputerNameUtf8();
+  static std::string GetMachineId();
   static std::string GetWindowsVersion();
 
   // Stats polling

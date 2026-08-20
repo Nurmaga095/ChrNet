@@ -320,6 +320,13 @@ Notes:
 - deep links eventually become subscription URLs
 - importing a subscription may also bring DNS servers, profile title, traffic data, and expiry data
 - subscription bodies may contain classic URI lists or Remnawave `XRAY_JSON` payloads
+- every subscription request carries device headers from `DeviceService`
+  (`x-hwid`, `x-device-os`, `x-ver-os`, `x-device-model`, `User-Agent`);
+  `x-hwid` is never empty — a locally generated UUID is stored and reused when
+  the platform cannot supply an id
+- anti-sharing panels answer an unrecognised device with `200` plus a stub
+  config (`0.0.0.0`, remark carrying the refusal text), so import rejects such a
+  response instead of saving it as a server
 
 ## Subscription Refresh Flow
 
