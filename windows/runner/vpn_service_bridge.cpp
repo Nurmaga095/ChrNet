@@ -247,84 +247,47 @@ std::optional<AdapterInfo> FindTunAdapter(std::wstring_view adapter_name) {
   return std::nullopt;
 }
 
+bool IsIpv4Literal(const std::string& value) {
+  IN_ADDR parsed = {};
+  return InetPtonA(AF_INET, value.c_str(), &parsed) == 1;
+}
+
+// Resolves the VPN server host to IPv4 addresses.
+//
+// This used to shell out to Resolve-DnsName and treat every printed line as an
+// address. That answer also carries the zone's NS glue records, AAAA records
+// and — because stderr shared the pipe — PowerShell's own error text, so the
+// tunnel then tried to add a host route for a line of English prose and refused
+// to connect. getaddrinfo answers with addresses for the queried name only.
 std::vector<std::string> ResolveHostIPv4(const std::string& host) {
   std::vector<std::string> result;
   if (host.empty()) return result;
 
-  const auto is_ipv4 = std::all_of(host.begin(), host.end(), [](char ch) {
-    return (ch >= '0' && ch <= '9') || ch == '.';
-  });
-  if (is_ipv4) {
+  if (IsIpv4Literal(host)) {
     result.push_back(host);
     return result;
   }
 
-  SECURITY_ATTRIBUTES sa = {};
-  sa.nLength = sizeof(sa);
-  sa.bInheritHandle = TRUE;
+  WSADATA wsa_data = {};
+  const bool wsa_started = WSAStartup(MAKEWORD(2, 2), &wsa_data) == 0;
 
-  HANDLE read_pipe = nullptr;
-  HANDLE write_pipe = nullptr;
-  if (!CreatePipe(&read_pipe, &write_pipe, &sa, 0)) {
-    return result;
-  }
-  SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0);
+  addrinfo hints = {};
+  hints.ai_family = AF_INET;  // an IPv6 address cannot go into an IPv4 route
+  hints.ai_socktype = SOCK_STREAM;
 
-  wchar_t sys_root[MAX_PATH] = {};
-  if (GetEnvironmentVariableW(L"SystemRoot", sys_root, MAX_PATH) == 0) {
-    wcscpy_s(sys_root, L"C:\\Windows");
-  }
-  const auto powershell =
-      std::filesystem::path(sys_root) /
-      "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe";
-  std::wstring command =
-      L"\"" + powershell.wstring() +
-      L"\" -NoProfile -Command "
-      L"\"$ProgressPreference='SilentlyContinue'; "
-      L"Resolve-DnsName -Type A -Name '" +
-      Utf8ToWide(host) +
-      L"' -ErrorAction Stop | Select-Object -ExpandProperty IPAddress\"";
-
-  std::vector<wchar_t> cmdline(command.begin(), command.end());
-  cmdline.push_back(L'\0');
-
-  STARTUPINFOW si = {};
-  si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-  si.wShowWindow = SW_HIDE;
-  si.hStdOutput = write_pipe;
-  si.hStdError = write_pipe;
-
-  PROCESS_INFORMATION pi = {};
-  const bool ok = CreateProcessW(nullptr, cmdline.data(), nullptr, nullptr, TRUE,
-                                 CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-  CloseHandle(write_pipe);
-  if (!ok) {
-    CloseHandle(read_pipe);
-    return result;
-  }
-
-  std::string output;
-  char buffer[256];
-  DWORD bytes_read = 0;
-  while (ReadFile(read_pipe, buffer, sizeof(buffer), &bytes_read, nullptr) &&
-         bytes_read > 0) {
-    output.append(buffer, bytes_read);
-  }
-
-  WaitForSingleObject(pi.hProcess, 4000);
-  CloseHandle(pi.hProcess);
-  CloseHandle(pi.hThread);
-  CloseHandle(read_pipe);
-
-  std::istringstream lines(output);
-  for (std::string line; std::getline(lines, line);) {
-    line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
-    if (line.empty()) continue;
-    if (std::find(result.begin(), result.end(), line) == result.end()) {
-      result.push_back(line);
+  addrinfo* records = nullptr;
+  if (getaddrinfo(host.c_str(), nullptr, &hints, &records) == 0) {
+    for (const auto* entry = records; entry != nullptr; entry = entry->ai_next) {
+      const auto ip = SockaddrToIpv4(entry->ai_addr);
+      if (ip.empty()) continue;
+      if (std::find(result.begin(), result.end(), ip) == result.end()) {
+        result.push_back(ip);
+      }
     }
+    freeaddrinfo(records);
   }
+
+  if (wsa_started) WSACleanup();
   return result;
 }
 
@@ -942,19 +905,36 @@ bool VpnServiceBridge::ConfigureTunnelRoutes(const std::string& server_host,
   tunnel_routes_.tun_gateway = tun_adapter->ipv4;
   tunnel_routes_.server_ips = ResolveHostIPv4(server_host);
 
+  // Without a bypass route the server's own traffic would be sent back into the
+  // TUN, so a server that does not resolve has to stop the connection here
+  // rather than at the point where the loop has already been built.
+  if (tunnel_routes_.server_ips.empty()) {
+    RestoreTunnelRoutes();
+    error = "Could not resolve the VPN server address: " + server_host;
+    return false;
+  }
+
   // Add a host route for the VPN server IP via the original gateway so its
   // traffic bypasses the TUN, preventing a routing loop.
+  //
+  // One address failing is not fatal — a host with several A records only needs
+  // the one the core actually dials, and an already-present route reports
+  // failure too. Losing every address is fatal.
+  size_t routed = 0;
   for (const auto& ip : tunnel_routes_.server_ips) {
     std::wstringstream route_args;
     route_args << L"ADD " << Utf8ToWide(ip)
                << L" MASK 255.255.255.255 "
                << Utf8ToWide(tunnel_routes_.original_gateway)
                << L" METRIC 1 IF " << tunnel_routes_.original_if_index;
-    if (!RunRouteCommand(route_args.str())) {
-      RestoreTunnelRoutes();
-      error = "Failed to add direct route for VPN server " + ip;
-      return false;
-    }
+    if (RunRouteCommand(route_args.str())) ++routed;
+  }
+
+  if (routed == 0) {
+    RestoreTunnelRoutes();
+    error = "Failed to add direct route for VPN server " +
+            tunnel_routes_.server_ips.front();
+    return false;
   }
 
   // Route all IPv4 traffic through TUN with metric 1, overriding the physical

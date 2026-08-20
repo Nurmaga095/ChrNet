@@ -5,7 +5,7 @@
 <div align="center">
   <h1>ChrNet VPN</h1>
   <p>Быстрый и безопасный VPN-клиент на Flutter (Android + Windows)</p>
-  <p>Текущая версия: <strong>2.0.1+9</strong></p>
+  <p>Текущая версия: <strong>2.0.2+10</strong></p>
 
   <a href="https://github.com/Nurmaga095/ChrNet/releases"><img src="https://img.shields.io/github/v/release/Nurmaga095/ChrNet?display_name=release&logo=github" alt="Release"></a>
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" alt="Flutter"></a>
@@ -35,19 +35,19 @@
     <tr>
       <td>Windows x64</td>
       <td>
-        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.1/ChrNet-Setup-latest.exe">
-          <img src="https://img.shields.io/badge/Установщик-v2.0.1-2d7d9a.svg?logo=windows&logoColor=white" alt="Установщик Windows">
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.2/ChrNet-Setup-latest.exe">
+          <img src="https://img.shields.io/badge/Установщик-v2.0.2-2d7d9a.svg?logo=windows&logoColor=white" alt="Установщик Windows">
         </a>
       </td>
     </tr>
     <tr>
       <td>Android</td>
       <td>
-        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.1/ChrNet-Android-2.0.1-arm64.apk">
-          <img src="https://img.shields.io/badge/APK%20arm64-v2.0.1-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK arm64">
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.2/ChrNet-Android-2.0.2-arm64.apk">
+          <img src="https://img.shields.io/badge/APK%20arm64-v2.0.2-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK arm64">
         </a>
-        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.1/ChrNet-Android-2.0.1-arm32.apk">
-          <img src="https://img.shields.io/badge/APK%20arm32-v2.0.1-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK arm32">
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.2/ChrNet-Android-2.0.2-arm32.apk">
+          <img src="https://img.shields.io/badge/APK%20arm32-v2.0.2-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK arm32">
         </a>
       </td>
     </tr>

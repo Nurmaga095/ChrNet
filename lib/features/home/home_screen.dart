@@ -1376,28 +1376,10 @@ class _SubCard extends StatelessWidget {
     required this.onToggleCollapse,
   });
 
-  static const _months = [
-    'января',
-    'февраля',
-    'марта',
-    'апреля',
-    'мая',
-    'июня',
-    'июля',
-    'августа',
-    'сентября',
-    'октября',
-    'ноября',
-    'декабря',
-  ];
-
   String _fmtGb(int bytes) {
     final gb = bytes / (1024 * 1024 * 1024);
     return '${gb.toStringAsFixed(1).replaceAll('.', ',')} ГБ';
   }
-
-  String _fmtDate(DateTime d) =>
-      '${d.day} ${_months[d.month - 1]} ${d.year}';
 
   String _displayProjectName(String raw) {
     final value = raw.trim();
@@ -1419,6 +1401,7 @@ class _SubCard extends StatelessWidget {
         (total != null && total > 0) ? math.min(used / total, 1.0) : 0.0;
     final expireDate = subscription.expireDate;
     final barColor = _trafficColor(c, ratio);
+    final remaining = _remainingLabel(c, expireDate);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -1499,9 +1482,9 @@ class _SubCard extends StatelessWidget {
                 Row(
                   children: [
                     Text(
-                      'Трафик',
+                      remaining?.text ?? 'Трафик',
                       style: AppText.caption.copyWith(
-                        color: c.textSecondary,
+                        color: remaining?.color ?? c.textSecondary,
                         fontSize: 12.5,
                       ),
                     ),
@@ -1527,10 +1510,6 @@ class _SubCard extends StatelessWidget {
                     valueColor: AlwaysStoppedAnimation(barColor),
                   ),
                 ),
-                if (expireDate != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  _buildExpiry(c, expireDate),
-                ],
                 if (_userInfoPills(c).isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.md),
                   Wrap(
@@ -1547,31 +1526,28 @@ class _SubCard extends StatelessWidget {
     );
   }
 
-  /// Expiry as a plain label/value row, matching the traffic line above it.
-  Widget _buildExpiry(AppColors c, DateTime expireDate) {
-    final days = expireDate.difference(DateTime.now()).inDays;
-    final expired = days < 0;
-    final valueColor = expired || days <= 3
-        ? c.errorText
-        : days <= 14
-            ? c.warningText
-            : c.textPrimary;
+  /// Остаток срока подписки для строки трафика.
+  ///
+  /// Стоит слева от израсходованных гигабайт: это два числа, по которым
+  /// подписку и проверяют, и смотреть их удобнее рядом. Точная дата остаётся
+  /// строкой ниже.
+  ({String text, Color color})? _remainingLabel(
+    AppColors c,
+    DateTime? expireDate,
+  ) {
+    if (expireDate == null) return null;
 
-    return Row(
-      children: [
-        Text(
-          expired ? 'Истекла' : 'Истекает',
-          style: AppText.caption.copyWith(
-            color: c.textSecondary,
-            fontSize: 12.5,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          _fmtDate(expireDate),
-          style: AppText.mono.copyWith(color: valueColor, fontSize: 12.5),
-        ),
-      ],
+    final days = expireDate.difference(DateTime.now()).inDays;
+    if (days < 0) return (text: 'Истекла', color: c.errorText);
+    if (days == 0) return (text: 'Истекает сегодня', color: c.errorText);
+
+    return (
+      text: 'Осталось $days д',
+      color: days <= 3
+          ? c.errorText
+          : days <= 14
+              ? c.warningText
+              : c.textSecondary,
     );
   }
 
