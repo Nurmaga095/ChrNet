@@ -49,13 +49,27 @@ endfunction()
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+# Native VPN core shared by the app and the service; see core/CMakeLists.txt.
+add_subdirectory("core")
+
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
+
+# The LocalSystem service that owns the tunnel; see service/CMakeLists.txt.
+add_subdirectory("service")
 
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
+
+# permission_handler_windows still includes <experimental/coroutine>, which
+# MSVC 14.51 (Visual Studio 2026) turns into error STL1011 unless the
+# deprecation is explicitly silenced. Scoped to that plugin only.
+if(TARGET permission_handler_windows_plugin)
+  target_compile_definitions(permission_handler_windows_plugin PRIVATE
+    _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
 
 
 # === Installation ===
@@ -73,6 +87,9 @@ set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+install(TARGETS chrnet_service RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"

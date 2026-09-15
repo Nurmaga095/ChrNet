@@ -8,7 +8,10 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "in_process_backend.cpp"
   "main.cpp"
+  "service_check.cpp"
+  "service_client.cpp"
   "utils.cpp"
   "vpn_service_bridge.cpp"
   "win32_window.cpp"
@@ -37,6 +40,7 @@ target_compile_options(${BINARY_NAME} PRIVATE "/utf-8")
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
+target_link_libraries(${BINARY_NAME} PRIVATE chrnet_core)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "wininet.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "iphlpapi.lib")

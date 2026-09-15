@@ -5,100 +5,96 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <flutter/binary_messenger.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
-#include <filesystem>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <thread>
-#include <vector>
 
+#include "core_backend.h"
+#include "service_client.h"
+
+// What the bridge needs from the window hosting the Flutter view.
+class VpnBridgeHost {
+ public:
+  virtual ~VpnBridgeHost() = default;
+  // Runs |task| on the platform thread, the only one allowed to call into the
+  // Flutter engine. Tasks posted while the window is closing are dropped.
+  virtual void PostToPlatformThread(std::function<void()> task) = 0;
+  virtual void UpdateTrayState(bool connected, const std::wstring& tooltip) = 0;
+};
+
+// Serves com.chrnet.vpn/service on Windows. Work that can block, talking to the
+// service or starting the core, runs on one worker thread in request order;
+// replies and events travel back through the host's platform thread.
 class VpnServiceBridge {
  public:
-  explicit VpnServiceBridge(flutter::BinaryMessenger* messenger);
+  VpnServiceBridge(flutter::BinaryMessenger* messenger, VpnBridgeHost* host);
   ~VpnServiceBridge();
+  VpnServiceBridge(const VpnServiceBridge&) = delete;
+  VpnServiceBridge& operator=(const VpnServiceBridge&) = delete;
+
+  // Stops the connection and puts the user's proxy settings back, right away
+  // and on the calling thread. For the end of a Windows session and app exit.
+  void ShutdownConnection();
+
+  // The tray's connect/disconnect item. The Dart side owns the connection
+  // flow, so the request is forwarded there.
+  void RequestToggleFromTray();
+
+  // Undoes the system proxy a killed or crashed instance left pointing at a
+  // core that no longer runs. Used by "chrnet.exe --cleanup" in the installer.
+  static void RestoreStaleSystemProxy();
 
  private:
-  struct ProxyState {
-    bool captured = false;
-    DWORD flags = 0;
-    std::wstring server;
-    std::wstring bypass;
-  };
-
-  struct StatsResult {
-    int64_t download = 0;
-    int64_t upload = 0;
-  };
-
-  struct TunnelRouteState {
-    bool configured = false;
-    ULONG original_if_index = 0;
-    ULONG tun_if_index = 0;
-    std::string original_gateway;
-    std::string tun_gateway;
-    std::vector<std::string> server_ips;
-  };
+  using Result =
+      std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>;
 
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
-  bool StartCore(const std::string& config_json, bool use_system_proxy,
-                 const std::string& server_host, std::string& error);
-  void StopCore();
-  bool IsCoreRunning();
-  std::filesystem::path ResolveXrayPath() const;
-  std::filesystem::path ResolveRuntimeDir() const;
-  bool SetSystemProxy(const std::wstring& proxy_server);
-  bool CaptureProxyState();
-  bool RestoreProxyState();
-  static bool ApplyProxyState(DWORD flags, const std::wstring& server,
-                              const std::wstring& bypass);
-  void CleanupStaleNetworkArtifacts();
-  void CleanupProxyIfChrNetOwned();
-  void CleanupStaleTunnelRoutes();
-  static std::string GetComputerNameUtf8();
-  static std::string GetWindowsVersion();
 
-  // Stats polling
-  void StartStatsThread();
-  void StopStatsThread();
-  void StatsThreadFunc();
-  std::string RunStatsQuery();
-  StatsResult ParseStatsOutput(const std::string& json);
-  StatsResult GetCurrentStats() const;
-  bool ConfigureTunnelRoutes(const std::string& server_host,
-                             std::string& error);
-  void RestoreTunnelRoutes();
-  static bool RunRouteCommand(const std::wstring& arguments);
+  void RunOnWorker(std::function<void()> task);
+  void WorkerLoop();
+  void StopWorker();
+  void ReplySuccess(const Result& result,
+                    flutter::EncodableValue value = flutter::EncodableValue());
+  void ReplyError(const Result& result, const std::string& code,
+                  const std::string& message);
 
+  // Worker thread only.
+  void SyncOnStartup();
+  CoreBackend* SelectBackendForStart();
+  CoreBackend* BackendForQueries();
+  void RestoreProxyIfNeeded();
+  void OnBackendStatus(const chrnet::CoreStatus& status);
+
+  VpnBridgeHost* host_;
+  std::shared_ptr<std::atomic<bool>> alive_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
-  bool is_running_ = false;
-  bool use_system_proxy_ = true;
+
+  std::mutex worker_mutex_;
+  std::condition_variable worker_cv_;
+  std::deque<std::function<void()>> worker_queue_;
+  bool worker_stop_ = false;
+  std::thread worker_;
+
+  // Owned by the worker thread; the platform thread takes over only after the
+  // worker has been stopped.
+  std::unique_ptr<ServiceClient> service_;
+  std::unique_ptr<CoreBackend> in_process_;
+  CoreBackend* active_ = nullptr;
   bool proxy_enabled_ = false;
-  PROCESS_INFORMATION process_info_ = {};
-  bool has_process_ = false;
-  HANDLE job_handle_ = nullptr;
-  ProxyState proxy_state_;
-  TunnelRouteState tunnel_routes_;
-
-  // Stats state
-  std::thread stats_thread_;
-  std::atomic<bool> stats_running_{false};
-  mutable std::mutex stats_mutex_;
-  std::condition_variable stats_cv_;
-  std::mutex stats_cv_mutex_;
-  int64_t stats_cumulative_download_ = 0;
-  int64_t stats_cumulative_upload_ = 0;
-
-  // Serializes connect/disconnect operations running on background threads
-  std::mutex core_mutex_;
+  uint16_t http_port_ = 10809;
+  bool connection_shut_down_ = false;
 };
 
 #endif  // RUNNER_VPN_SERVICE_BRIDGE_H_

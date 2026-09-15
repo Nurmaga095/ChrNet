@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import '../models/server_config.dart';
 import '../models/vpn_stats.dart';
+import '../utils/host_resolver.dart';
 import 'storage_service.dart';
 import 'xray_config_builder.dart';
 
@@ -13,13 +14,31 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const _channel = MethodChannel('com.chrnet.vpn/service');
   static const _statsChannel = EventChannel('com.chrnet.vpn/stats');
 
+  /// Pauses between attempts to restore a connection that dropped by itself:
+  /// the core crashed, the network changed or the service restarted.
+  static const List<int> _autoReconnectDelaysSeconds = [2, 4, 8, 15, 30, 60];
+
+  /// Start failures another attempt cannot fix; they are shown right away.
+  static const Set<String> _permanentErrorCodes = {
+    'INVALID_ARG',
+    'INVALID_CONFIG',
+    'XRAY_MISSING',
+    'NOT_ELEVATED',
+    'PORT_IN_USE',
+    'PROXY_FAILED',
+  };
+
   VpnStatus _status = VpnStatus.disconnected;
   VpnStats _stats = const VpnStats();
   ServerConfig? _selectedServer;
   String? _errorMessage;
+  String? _statusDetail;
   StreamSubscription? _statsSubscription;
   Timer? _durationTimer;
   Timer? _connectingPollTimer;
+  Timer? _autoReconnectTimer;
+  Timer? _stableConnectionTimer;
+  int _autoReconnectAttempt = 0;
   DateTime? _connectedAt;
   bool _serverSwitchInProgress = false;
   ServerConfig? _queuedServerSwitch;
@@ -32,6 +51,10 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
   VpnStats get stats => _stats;
   ServerConfig? get selectedServer => _selectedServer;
   String? get errorMessage => _errorMessage;
+
+  /// Context for the current status, such as a dropped connection being
+  /// restored. Null when the status speaks for itself.
+  String? get statusDetail => _statusDetail;
   bool get isConnected => _status == VpnStatus.connected;
   bool get isConnecting => _status == VpnStatus.connecting;
   bool get _isVpnSupportedPlatform =>
@@ -39,13 +62,30 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.iOS);
+  bool get _isWindows =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   VpnProvider() {
     _loadSelectedServer();
     _listenNativeStatus();
-    _syncStatusWithNative();
+    unawaited(_initialize());
     unawaited(syncQuickSettingsConfig());
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  Future<void> _initialize() async {
+    await _syncStatusWithNative();
+    // Windows can start the app at sign-in; with auto-connect on, that brings
+    // the VPN up without anyone opening the window.
+    if (!_isWindows || !StorageService.getAutoConnect()) return;
+    if (_status != VpnStatus.disconnected) return;
+    if (_selectedServer == null) {
+      final first = StorageService.getServers().firstOrNull;
+      if (first == null) return;
+      _selectedServer = first;
+      await StorageService.setSelectedServerId(first.id);
+    }
+    await connect();
   }
 
   @override
@@ -95,6 +135,7 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // Если сервер реально сменился и VPN уже активен — перезапускаем туннель.
     if (prevId == server.id) return;
+    unawaited(_updateTray());
     if (_status == VpnStatus.connected) {
       await reconnect();
       await _waitForConnectionTransition();
@@ -116,16 +157,32 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _syncStatusWithNative() async {
     if (!_isVpnSupportedPlatform) return;
     try {
-      final isRunning = await _channel.invokeMethod<bool>('getStatus');
-      if (isRunning == true && _status == VpnStatus.disconnected) {
-        _connectedAt = DateTime.now();
+      var isRunning = false;
+      DateTime? startedAt;
+      if (_isWindows) {
+        // The service keeps a connection alive across app restarts; its start
+        // time keeps the session timer honest.
+        final state =
+            await _channel.invokeMapMethod<String, dynamic>('getCoreState');
+        isRunning = state?['running'] == true;
+        final startedAtMs = (state?['startedAt'] as num?)?.toInt() ?? 0;
+        if (startedAtMs > 0) {
+          startedAt = DateTime.fromMillisecondsSinceEpoch(startedAtMs);
+        }
+      } else {
+        isRunning = await _channel.invokeMethod<bool>('getStatus') == true;
+      }
+
+      if (isRunning &&
+          (_status == VpnStatus.disconnected || _status == VpnStatus.error)) {
+        _errorMessage = null;
+        _connectedAt = startedAt ?? DateTime.now();
         _setStatus(VpnStatus.connected);
         _startStatsTracking();
-      } else if (isRunning != true && _status == VpnStatus.connected) {
+      } else if (!isRunning && _status == VpnStatus.connected) {
         _stopStatsTracking();
-        _setStatus(VpnStatus.disconnected);
         _stats = const VpnStats();
-        notifyListeners();
+        _setStatus(VpnStatus.disconnected);
       }
     } catch (_) {}
   }
@@ -139,7 +196,11 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> connect() async {
+  Future<void> connect() => _connect(automatic: false);
+
+  /// [automatic] marks an attempt to restore a dropped connection; a failure
+  /// then schedules the next attempt instead of showing an error.
+  Future<void> _connect({required bool automatic}) async {
     if (!_isVpnSupportedPlatform) {
       _errorMessage = 'VPN-движок недоступен на этой платформе';
       _setStatus(VpnStatus.error);
@@ -150,30 +211,39 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return;
     }
+    if (!automatic) {
+      _cancelAutoReconnect();
+      _statusDetail = null;
+    }
 
-    _setStatus(VpnStatus.connecting);
     _errorMessage = null;
+    _setStatus(VpnStatus.connecting);
 
     try {
       await syncQuickSettingsConfig();
-      await _channel.invokeMethod('connect', _selectedServerPayload);
+      final payload = await _connectPayload();
+      await _channel.invokeMethod('connect', payload);
+      if (await _confirmWindowsCoreRunning()) return;
       // Polling: раз в секунду спрашиваем у сервиса — вдруг push не дошёл
       _startConnectingPoll();
     } on MissingPluginException {
-      _errorMessage = 'VPN-сервис недоступен';
-      _setStatus(VpnStatus.error);
+      _failConnect('VPN-сервис недоступен', automatic: automatic);
     } on PlatformException catch (e) {
-      _errorMessage = e.message ?? 'Ошибка подключения';
-      _setStatus(VpnStatus.error);
+      _failConnect(
+        e.message ?? 'Ошибка подключения',
+        code: e.code,
+        automatic: automatic,
+      );
     } on UnsupportedError catch (e) {
       // Raised for servers saved before the app narrowed to VLESS. The message
       // is already user-facing, so show it instead of wrapping it in "Ошибка
       // подключения: Unsupported operation: ...".
-      _errorMessage = e.message?.toString() ?? 'Протокол не поддерживается';
-      _setStatus(VpnStatus.error);
+      _failConnect(
+        e.message?.toString() ?? 'Протокол не поддерживается',
+        automatic: false,
+      );
     } catch (e) {
-      _errorMessage = 'Ошибка подключения: $e';
-      _setStatus(VpnStatus.error);
+      _failConnect('Ошибка подключения: $e', automatic: automatic);
     }
   }
 
@@ -189,45 +259,109 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
+    _cancelAutoReconnect();
+    _statusDetail = null;
     _stopStatsTracking();
     _stats = const VpnStats();
-    _setStatus(VpnStatus.connecting);
     _errorMessage = null;
+    _setStatus(VpnStatus.connecting);
 
     try {
       await syncQuickSettingsConfig();
-      await _channel.invokeMethod('reconnect', _selectedServerPayload);
+      final payload = await _connectPayload();
+      await _channel.invokeMethod('reconnect', payload);
+      if (await _confirmWindowsCoreRunning()) return;
       _startConnectingPoll();
     } on MissingPluginException {
-      _errorMessage = 'VPN-сервис недоступен';
-      _setStatus(VpnStatus.error);
+      _failConnect('VPN-сервис недоступен', automatic: false);
     } on PlatformException catch (e) {
-      _errorMessage = e.message ?? 'Ошибка переподключения';
-      _setStatus(VpnStatus.error);
+      _failConnect(e.message ?? 'Ошибка переподключения', automatic: false);
     } on UnsupportedError catch (e) {
       // Raised for servers saved before the app narrowed to VLESS. The message
       // is already user-facing, so show it instead of wrapping it in "Ошибка
       // переподключения: Unsupported operation: ...".
-      _errorMessage = e.message?.toString() ?? 'Протокол не поддерживается';
-      _setStatus(VpnStatus.error);
+      _failConnect(
+        e.message?.toString() ?? 'Протокол не поддерживается',
+        automatic: false,
+      );
     } catch (e) {
-      _errorMessage = 'Ошибка переподключения: $e';
-      _setStatus(VpnStatus.error);
+      _failConnect('Ошибка переподключения: $e', automatic: false);
     }
   }
 
-  Map<String, dynamic> get _selectedServerPayload => {
-        'rawUri': _selectedServer!.rawUri,
-        'configJson': _buildSelectedServerConfig(),
+  void _failConnect(String message, {String? code, required bool automatic}) {
+    _connectingPollTimer?.cancel();
+    if (automatic &&
+        !_permanentErrorCodes.contains(code) &&
+        _scheduleAutoReconnect()) {
+      return;
+    }
+    _cancelAutoReconnect();
+    _statusDetail = null;
+    _errorMessage = message;
+    _setStatus(VpnStatus.error);
+  }
+
+  Map<String, dynamic> _basePayload(ServerConfig server) => {
+        'rawUri': server.rawUri,
         'ruRouting': StorageService.getRuRouting(),
-        'serverName': _selectedServer!.displayName,
-        'windowsMode': StorageService.getWindowsVpnMode(),
-        'host': _selectedServer!.host,
-        'port': _selectedServer!.port,
-        'protocol': _selectedServer!.protocol,
-        'uuid': _selectedServer!.uuid,
-        'extras': _selectedServer!.extras,
+        'serverName': server.displayName,
+        'host': server.host,
+        'port': server.port,
+        'protocol': server.protocol,
+        'uuid': server.uuid,
+        'extras': server.extras,
       };
+
+  /// The payload Android and the quick settings tile use.
+  Map<String, dynamic> get _selectedServerPayload => {
+        ..._basePayload(_selectedServer!),
+        'configJson': _buildSelectedServerConfig(),
+        'windowsMode': StorageService.getWindowsVpnMode(),
+        'serverHosts': XrayConfigBuilder.tunnelBypassHosts(_selectedServer!),
+      };
+
+  Future<Map<String, dynamic>> _connectPayload() async {
+    if (!_isWindows) return _selectedServerPayload;
+
+    final server = _selectedServer!;
+    final tunnel = StorageService.getWindowsVpnMode() == 'tunnel';
+    final ruRouting = StorageService.getRuRouting();
+    final hosts = XrayConfigBuilder.tunnelBypassHosts(server);
+    // Resolved before the core starts: the service routes exactly these
+    // addresses around the tunnel, and the pinned hosts keep the core from
+    // dialling any other address of the same server.
+    final pinned = tunnel
+        ? await resolveIpv4Addresses(hosts)
+        : const <String, List<String>>{};
+    final configJson = tunnel
+        ? XrayConfigBuilder.buildTunnelConfig(
+            server,
+            enableRuRouting: ruRouting,
+            hijackDns: true,
+            pinnedHosts: pinned,
+            metricsPort: XrayConfigBuilder.windowsMetricsPort,
+          )
+        : XrayConfigBuilder.buildSystemProxyConfig(
+            server,
+            enableRuRouting: ruRouting,
+            metricsPort: XrayConfigBuilder.windowsMetricsPort,
+          );
+
+    return {
+      ..._basePayload(server),
+      'configJson': configJson,
+      'windowsMode': tunnel ? 'tunnel' : 'system_proxy',
+      'serverHosts': <String>{
+        ...hosts,
+        for (final addresses in pinned.values) ...addresses,
+      }.toList(),
+      'proxyTags': XrayConfigBuilder.proxyOutboundTags(configJson),
+      'metricsPort': XrayConfigBuilder.windowsMetricsPort,
+      'socksPort': 10808,
+      'httpPort': 10809,
+    };
+  }
 
   Future<void> syncQuickSettingsConfig() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
@@ -243,22 +377,46 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   String _buildSelectedServerConfig() {
-    final mode = StorageService.getWindowsVpnMode();
     final ruRouting = StorageService.getRuRouting();
     final isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    final isWindows =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
     if (isAndroid) {
       return XrayConfigBuilder.buildAndroidVpnConfig(_selectedServer!,
           statsApi: true, enableRuRouting: ruRouting);
     }
-    if (isWindows && mode == 'tunnel') {
-      return XrayConfigBuilder.buildTunnelConfig(_selectedServer!,
-          statsApi: true, enableRuRouting: ruRouting);
-    }
     return XrayConfigBuilder.buildSystemProxyConfig(_selectedServer!,
-        statsApi: isWindows, enableRuRouting: ruRouting);
+        enableRuRouting: ruRouting);
+  }
+
+  /// The Windows runner answers connect/reconnect only after the core, routes
+  /// and system proxy are all in place, so one status check right away replaces
+  /// waiting for the first one-second poll tick. Android answers as soon as the
+  /// service is asked to start, so it keeps relying on the poll.
+  Future<bool> _confirmWindowsCoreRunning() async {
+    if (!_isWindows) return false;
+    try {
+      final isRunning = await _channel.invokeMethod<bool>('getStatus');
+      if (isRunning == true && _status == VpnStatus.connecting) {
+        _markConnected();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  void _markConnected() {
+    _connectingPollTimer?.cancel();
+    _connectedAt = DateTime.now();
+    _statusDetail = null;
+    _errorMessage = null;
+    _setStatus(VpnStatus.connected);
+    _startStatsTracking();
+    // Attempts count from zero again only once a connection has held for a
+    // while, so a core that dies right after every start does not loop forever.
+    _stableConnectionTimer?.cancel();
+    _stableConnectionTimer = Timer(const Duration(minutes: 1), () {
+      _autoReconnectAttempt = 0;
+    });
   }
 
   void _startConnectingPoll() {
@@ -282,16 +440,15 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
       try {
         final isRunning = await _channel.invokeMethod<bool>('getStatus');
         if (isRunning == true && _status == VpnStatus.connecting) {
-          t.cancel();
-          _connectedAt = DateTime.now();
-          _setStatus(VpnStatus.connected);
-          _startStatsTracking();
+          _markConnected();
         }
       } catch (_) {}
     });
   }
 
   Future<void> disconnect() async {
+    _cancelAutoReconnect();
+    _statusDetail = null;
     if (!_isVpnSupportedPlatform) {
       _stopStatsTracking();
       _setStatus(VpnStatus.disconnected);
@@ -306,9 +463,56 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint('Disconnect error: ${e.message}');
     }
     _stopStatsTracking();
-    _setStatus(VpnStatus.disconnected);
     _stats = const VpnStats();
-    notifyListeners();
+    _errorMessage = null;
+    _setStatus(VpnStatus.disconnected);
+  }
+
+  // ─── Dropped connections ──────────────────────────────────────────────────
+
+  /// The native side lost a connection nobody asked to stop.
+  void _handleCoreStopped(String? message) {
+    if (_status != VpnStatus.connected && _status != VpnStatus.connecting) {
+      return;
+    }
+    _connectingPollTimer?.cancel();
+    _stopStatsTracking();
+    _stats = const VpnStats();
+    if (_scheduleAutoReconnect()) return;
+    _statusDetail = null;
+    _errorMessage = message ?? 'Соединение прервалось';
+    _setStatus(VpnStatus.error);
+  }
+
+  /// Returns false once the attempts are used up.
+  bool _scheduleAutoReconnect() {
+    if (_selectedServer == null ||
+        _autoReconnectAttempt >= _autoReconnectDelaysSeconds.length) {
+      _autoReconnectAttempt = 0;
+      return false;
+    }
+    final delay =
+        Duration(seconds: _autoReconnectDelaysSeconds[_autoReconnectAttempt]);
+    _autoReconnectAttempt++;
+    _autoReconnectTimer?.cancel();
+    _stableConnectionTimer?.cancel();
+    _errorMessage = null;
+    _statusDetail = 'Соединение прервалось, переподключаемся…';
+    _setStatus(VpnStatus.connecting);
+    _autoReconnectTimer = Timer(delay, () {
+      if (_status == VpnStatus.connecting) {
+        unawaited(_connect(automatic: true));
+      }
+    });
+    return true;
+  }
+
+  void _cancelAutoReconnect() {
+    _autoReconnectTimer?.cancel();
+    _autoReconnectTimer = null;
+    _stableConnectionTimer?.cancel();
+    _stableConnectionTimer = null;
+    _autoReconnectAttempt = 0;
   }
 
   // ─── Native status listener ───────────────────────────────────────────────
@@ -329,12 +533,43 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
           _stopStatsTracking();
           _errorMessage = call.arguments as String?;
           _setStatus(VpnStatus.error);
+        case 'onCoreStopped':
+          final details = call.arguments;
+          _handleCoreStopped(
+            details is Map ? details['error']?.toString() : null,
+          );
+        case 'trayToggle':
+          unawaited(toggleConnection());
       }
     });
   }
 
+  // ─── Tray (Windows) ───────────────────────────────────────────────────────
+  Future<void> _updateTray() async {
+    if (!_isWindows) return;
+    final state = switch (_status) {
+      VpnStatus.connected => 'connected',
+      VpnStatus.connecting => 'connecting',
+      VpnStatus.disconnecting => 'disconnecting',
+      VpnStatus.error => 'error',
+      VpnStatus.disconnected => 'disconnected',
+    };
+    try {
+      await _channel.invokeMethod('updateTrayStatus', {
+        'state': state,
+        'server': _selectedServer?.displayName ?? '',
+      });
+    } catch (_) {}
+  }
+
   // ─── Stats ────────────────────────────────────────────────────────────────
   void _startStatsTracking() {
+    // Native "connected" can arrive after the poll already marked the
+    // connection up; a second set of timers would double-count the speed.
+    _statsSubscription?.cancel();
+    _statsSubscription = null;
+    _durationTimer?.cancel();
+
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       _statsSubscription =
           _statsChannel.receiveBroadcastStream().listen((data) {
@@ -356,7 +591,7 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_connectedAt != null) {
         final duration = DateTime.now().difference(_connectedAt!);
-        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+        if (_isWindows) {
           unawaited(_pollWindowsStats(duration));
         } else {
           // Android: байты уже обновляются через EventChannel, здесь считаем скорость
@@ -447,13 +682,16 @@ class VpnProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _setStatus(VpnStatus status) {
+    final changed = _status != status;
     _status = status;
     notifyListeners();
+    if (changed) unawaited(_updateTray());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _cancelAutoReconnect();
     _stopStatsTracking();
     super.dispose();
   }

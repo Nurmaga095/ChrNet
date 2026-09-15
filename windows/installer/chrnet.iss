@@ -18,6 +18,9 @@
 #define MyAppPublisher "ChrNet"
 #define MyAppExeName "chrnet.exe"
 #define MyRuntimeExeName "xray.exe"
+#define MyServiceExeName "chrnet_service.exe"
+#define MyServiceName "ChrNetService"
+#define MyWindowClass "FLUTTER_RUNNER_WIN32_WINDOW"
 
 [Setup]
 AppId={{D4855A14-C494-4CCC-87FE-E3C2A296D8D3}
@@ -47,7 +50,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; logs\ and runtime\ appear next to the binaries when the service is run from
+; the build folder for diagnostics; they must never ship.
+Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Excludes: "logs\*,runtime\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#VCRedistPath}"; DestDir: "{tmp}"; DestName: "vc_redist.x64.exe"; Flags: deleteafterinstall
 
 [Icons]
@@ -63,56 +68,94 @@ Root: HKCR; Subkey: "chrnet\shell\open\command"; ValueType: string; ValueName: "
 
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ Runtime..."; Flags: waituntilterminated runhidden; Check: NeedVCRedist
+; The service runs the VPN core, so the app itself needs no administrator
+; rights. --install also updates and restarts an existing registration.
+Filename: "{app}\{#MyServiceExeName}"; Parameters: "--install"; StatusMsg: "Регистрация службы ChrNet..."; Flags: waituntilterminated runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
+[UninstallRun]
+Filename: "{app}\{#MyServiceExeName}"; Parameters: "--uninstall"; Flags: waituntilterminated runhidden; RunOnceId: "RemoveService"
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--cleanup"; Flags: waituntilterminated runhidden; RunOnceId: "RestoreProxy"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\logs"
+Type: filesandordirs; Name: "{app}\runtime"
+
 [Code]
-procedure KillProcessByName(const ProcessName: String);
+const
+  WM_COMMAND = $0111;
+  // The tray menu's "Exit": disconnects and restores the proxy settings.
+  TrayCommandExit = 2002;
+
+// Closes ChrNet the way its tray "Exit" does, so it disconnects cleanly, and
+// kills it only if it does not go away in time.
+procedure CloseRunningApp;
+var
+  Wnd: HWND;
+  Attempt: Integer;
+  ResultCode: Integer;
+begin
+  Wnd := FindWindowByClassName('{#MyWindowClass}');
+  if Wnd <> 0 then
+  begin
+    PostMessage(Wnd, WM_COMMAND, TrayCommandExit, 0);
+    for Attempt := 1 to 50 do
+    begin
+      Sleep(200);
+      if FindWindowByClassName('{#MyWindowClass}') = 0 then
+        Break;
+    end;
+  end;
+  Exec('taskkill.exe', '/F /IM "{#MyAppExeName}"', '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure StopService;
 var
   ResultCode: Integer;
 begin
-  Exec(
-    'taskkill.exe',
-    '/IM "' + ProcessName + '"',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  );
-  Exec(
-    'taskkill.exe',
-    '/F /IM "' + ProcessName + '"',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  );
+  // net stop waits until the service has actually stopped.
+  Exec(ExpandConstant('{sys}\net.exe'), 'stop {#MyServiceName}', '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode);
 end;
 
-// Завершает ChrNet и его runtime-процессы перед установкой/удалением
-procedure KillRunningApp;
+procedure StopEverything;
+var
+  ResultCode: Integer;
 begin
-  KillProcessByName('{#MyAppExeName}');
-  Sleep(1500);
-  KillProcessByName('{#MyRuntimeExeName}');
-  Sleep(500);
-end;
-
-function InitializeSetup(): Boolean;
-begin
-  KillRunningApp;
-  Result := True;
+  CloseRunningApp;
+  StopService;
+  Exec('taskkill.exe', '/F /IM "{#MyRuntimeExeName}"', '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode);
+  // Only builds that ship the service understand --cleanup; an older
+  // chrnet.exe would open its window instead. The new app repairs the proxy
+  // settings of older versions itself on first start.
+  if FileExists(ExpandConstant('{app}\{#MyServiceExeName}')) then
+    Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--cleanup', '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  KillRunningApp;
+  StopEverything;
   Result := '';
 end;
 
 function InitializeUninstall(): Boolean;
 begin
-  KillRunningApp;
+  CloseRunningApp;
   Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    RegDeleteValue(HKEY_CURRENT_USER,
+      'Software\Microsoft\Windows\CurrentVersion\Run', 'ChrNet');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\ChrNet\ProxyBackup');
+    RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\ChrNet');
+  end;
 end;
 
 function NeedVCRedist: Boolean;

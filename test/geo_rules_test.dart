@@ -139,8 +139,31 @@ void main() {
     ]));
 
     // Left in place with an empty matcher it would match every request and
-    // black-hole the whole session.
-    expect(rules.any((rule) => rule['outboundTag'] == 'block'), isFalse);
+    // black-hole the whole session. The tunnel config carries blackhole rules
+    // of its own for broadcast traffic, so look for a block rule that lost its
+    // matcher rather than for any rule pointing at block.
+    const matcherKeys = [
+      'domain',
+      'ip',
+      'port',
+      'sourcePort',
+      'source',
+      'network',
+      'protocol',
+      'inboundTag',
+      'user',
+      'attrs',
+    ];
+    bool hasMatcher(Map<String, dynamic> rule) => matcherKeys.any((key) {
+          final value = rule[key];
+          return value is List ? value.isNotEmpty : value != null && value != '';
+        });
+
+    expect(
+      rules.where((rule) => rule['outboundTag'] == 'block').every(hasMatcher),
+      isTrue,
+    );
+    expect(jsonEncode(rules), isNot(contains('geosite:cn')));
   });
 
   group('dns section', () {

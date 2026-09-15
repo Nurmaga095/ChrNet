@@ -72,6 +72,18 @@ class Win32Window {
   // Called when Destroy is called.
   virtual void OnDestroy();
 
+  // Adds items above the tray menu's own "Open" and "Exit".
+  virtual void AppendTrayMenuItems(HMENU menu) {}
+
+  // Handles a tray menu command added by AppendTrayMenuItems. Returns true
+  // when the command was handled.
+  virtual bool OnTrayCommand(UINT command) { return false; }
+
+  // Windows is ending the user session (log off, restart, shut down).
+  virtual void OnSessionEnding() {}
+
+  void SetTrayTooltip(const std::wstring& tooltip);
+
  private:
   friend class WindowClassRegistrar;
 
@@ -101,6 +113,9 @@ class Win32Window {
   bool exiting_from_tray_ = false;
   std::wstring window_title_;
   NOTIFYICONDATAW tray_icon_data_ = {};
+  // Explorer broadcasts this after it restarts; every tray icon must be added
+  // again or it silently disappears.
+  UINT taskbar_created_message_ = 0;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

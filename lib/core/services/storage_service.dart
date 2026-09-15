@@ -20,6 +20,7 @@ class StorageService {
       'https://www.gstatic.com/generate_204';
   static const String _privacyDisclosureVersionKey =
       'privacyDisclosureAcceptedVersion';
+  static const String _fallbackHwidKey = 'fallbackHwid';
 
   static late Box<String> _serversB;
   static late Box<String> _subsB;
@@ -215,6 +216,15 @@ class StorageService {
     await _settingsB.put('windowsVpnMode', mode);
   }
 
+  /// Connect to the selected server as soon as the app starts. Off by default;
+  /// only offered on Windows, where the app can also start with the system.
+  static bool getAutoConnect() =>
+      (_settingsB.get('autoConnect') as bool?) ?? false;
+
+  static Future<void> setAutoConnect(bool value) async {
+    await _settingsB.put('autoConnect', value);
+  }
+
   static int getSubscriptionAutoUpdateHours() {
     final hours = _settingsB.get('subscriptionAutoUpdateHours') as int?;
     if (hours == null || hours <= 0) {
@@ -276,5 +286,19 @@ class StorageService {
     String version,
   ) async {
     await _settingsB.put(_privacyDisclosureVersionKey, version);
+  }
+
+  /// HWID, выданный устройству локально.
+  ///
+  /// Используется только когда платформа не смогла сообщить свой собственный
+  /// идентификатор: подписочные серверы отклоняют запрос без HWID, поэтому
+  /// пустым его отправлять нельзя.
+  static String? getFallbackHwid() {
+    final hwid = (_settingsB.get(_fallbackHwidKey) as String?)?.trim();
+    return hwid == null || hwid.isEmpty ? null : hwid;
+  }
+
+  static Future<void> setFallbackHwid(String hwid) async {
+    await _settingsB.put(_fallbackHwidKey, hwid.trim());
   }
 }

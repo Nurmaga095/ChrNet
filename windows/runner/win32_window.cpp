@@ -30,6 +30,8 @@ constexpr int kFixedWindowWidth = 500;
 constexpr UINT kTrayIconId = 1001;
 constexpr UINT kTrayMessageId = WM_APP + 1;
 constexpr UINT kTrayCommandOpen = 2001;
+// The installer posts this command too, to close the app the same way the
+// tray's "Exit" does instead of killing it.
 constexpr UINT kTrayCommandExit = 2002;
 
 // The number of Win32Window objects that currently exist.
@@ -152,6 +154,7 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+  taskbar_created_message_ = RegisterWindowMessageW(L"TaskbarCreated");
   InitializeTrayIcon();
 
   return OnCreate();
@@ -186,6 +189,12 @@ Win32Window::MessageHandler(HWND hwnd,
                             UINT const message,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
+  if (taskbar_created_message_ != 0 && message == taskbar_created_message_) {
+    tray_icon_added_ = false;
+    InitializeTrayIcon();
+    return 0;
+  }
+
   switch (message) {
     case WM_CLOSE:
       if (!exiting_from_tray_) {
@@ -193,6 +202,15 @@ Win32Window::MessageHandler(HWND hwnd,
         return 0;
       }
       break;
+
+    case WM_QUERYENDSESSION:
+      return TRUE;
+
+    case WM_ENDSESSION:
+      if (wparam) {
+        OnSessionEnding();
+      }
+      return 0;
 
     case WM_DESTROY:
       RemoveTrayIcon();
@@ -255,6 +273,9 @@ Win32Window::MessageHandler(HWND hwnd,
 
     case WM_COMMAND: {
       const UINT command = LOWORD(wparam);
+      if (OnTrayCommand(command)) {
+        return 0;
+      }
       if (command == kTrayCommandOpen) {
         RestoreFromTray();
         return 0;
@@ -317,7 +338,6 @@ bool Win32Window::InitializeTrayIcon() {
   if (window_handle_ == nullptr || tray_icon_added_) {
     return true;
   }
-  tray_icon_data_ = {};
   tray_icon_data_.cbSize = sizeof(NOTIFYICONDATAW);
   tray_icon_data_.hWnd = window_handle_;
   tray_icon_data_.uID = kTrayIconId;
@@ -325,10 +345,23 @@ bool Win32Window::InitializeTrayIcon() {
   tray_icon_data_.uCallbackMessage = kTrayMessageId;
   tray_icon_data_.hIcon =
       LoadIcon(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON));
-  wcsncpy_s(tray_icon_data_.szTip, window_title_.c_str(), _TRUNCATE);
+  if (tray_icon_data_.szTip[0] == L'\0') {
+    wcsncpy_s(tray_icon_data_.szTip, window_title_.c_str(), _TRUNCATE);
+  }
 
   tray_icon_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_data_) == TRUE;
   return tray_icon_added_;
+}
+
+void Win32Window::SetTrayTooltip(const std::wstring& tooltip) {
+  wcsncpy_s(tray_icon_data_.szTip, tooltip.c_str(), _TRUNCATE);
+  if (!tray_icon_added_) {
+    return;
+  }
+  const UINT flags = tray_icon_data_.uFlags;
+  tray_icon_data_.uFlags = NIF_TIP;
+  Shell_NotifyIconW(NIM_MODIFY, &tray_icon_data_);
+  tray_icon_data_.uFlags = flags;
 }
 
 void Win32Window::RemoveTrayIcon() {
@@ -354,6 +387,7 @@ void Win32Window::ShowTrayMenu() {
     return;
   }
 
+  AppendTrayMenuItems(menu);
   AppendMenuW(menu, MF_STRING, kTrayCommandOpen, L"Открыть");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, kTrayCommandExit, L"Выход");

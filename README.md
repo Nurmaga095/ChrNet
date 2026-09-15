@@ -5,7 +5,7 @@
 <div align="center">
   <h1>ChrNet VPN</h1>
   <p>Быстрый и безопасный VPN-клиент на Flutter (Android + Windows)</p>
-  <p>Текущая версия: <strong>2.0.0+8</strong></p>
+  <p>Текущая версия: <strong>2.1.0+11</strong></p>
 
   <a href="https://github.com/Nurmaga095/ChrNet/releases"><img src="https://img.shields.io/github/v/release/Nurmaga095/ChrNet?display_name=release&logo=github" alt="Release"></a>
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" alt="Flutter"></a>
@@ -20,7 +20,9 @@
 - Список серверов с флагами стран и проверкой ping
 - Роутинг: локальная сеть и российские сайты идут напрямую, мимо туннеля
 - Светлая/тёмная/системная тема и режим «Меньше анимаций» для экономии батареи
-- Режимы Windows: `system_proxy` / `tunnel`
+- Режимы Windows: `system_proxy` / `tunnel` — в обоих поднимается локальный прокси 127.0.0.1:10808 (SOCKS) и 127.0.0.1:10809 (HTTP) и на него же указывает системный прокси Windows
+- Туннель на Windows работает через службу ChrNet: права администратора приложению не нужны, DNS идёт через туннель, утечки DNS и IPv6 мимо туннеля блокируются
+- Windows: запуск вместе с системой, автоподключение, управление из трея, автоматическое переподключение после обрыва и смены сети
 
 ## Загрузки
 <div align="left">
@@ -35,16 +37,19 @@
     <tr>
       <td>Windows x64</td>
       <td>
-        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.0/ChrNet-Setup-2.0.0.exe">
-          <img src="https://img.shields.io/badge/Установщик-v2.0.0-2d7d9a.svg?logo=windows&logoColor=white" alt="Установщик Windows">
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.1.0/ChrNet-Setup-latest.exe">
+          <img src="https://img.shields.io/badge/Установщик-v2.1.0-2d7d9a.svg?logo=windows&logoColor=white" alt="Установщик Windows">
         </a>
       </td>
     </tr>
     <tr>
       <td>Android</td>
       <td>
-        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.0.0/ChrNet-Android-2.0.0.apk">
-          <img src="https://img.shields.io/badge/APK-v2.0.0-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK">
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.1.0/ChrNet-Android-2.1.0-arm64.apk">
+          <img src="https://img.shields.io/badge/APK%20arm64-v2.1.0-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK arm64">
+        </a>
+        <a href="https://github.com/Nurmaga095/ChrNet/releases/download/v2.1.0/ChrNet-Android-2.1.0-arm32.apk">
+          <img src="https://img.shields.io/badge/APK%20arm32-v2.1.0-3DDC84.svg?logo=android&logoColor=white" alt="Скачать Android APK arm32">
         </a>
       </td>
     </tr>

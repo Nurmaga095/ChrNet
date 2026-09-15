@@ -300,6 +300,35 @@ Important note:
 - TCP ping implementation with platform split
 - used by server quality checks in the home screen
 
+`lib/core/utils/host_resolver.dart` (+ `_io` / `_stub`)
+- resolves server host names to IPv4 before a Windows tunnel connect
+
+`lib/core/services/windows_integration_service.dart`
+- Windows-only calls on the service channel: starting with Windows, service availability
+
+`lib/features/settings/windows_connection_settings.dart`
+- Windows settings card: capture mode, start with Windows, connect on launch
+
+## Windows Native (`windows/`)
+
+`windows/core/` (static library `chrnet_core`, linked into both executables)
+- `core_controller.*`: one Xray process and, in tunnel mode, the TUN address, metric and DNS server, routes, leak filters, crash and network-change handling, all on one worker thread
+- `net_util.*`: IP Helper routes and adapters, interface DNS, TCP listener table, loopback HTTP GET
+- `wfp_guard.*`: dynamic WFP session blocking DNS and global IPv6 outside the TUN
+- `proxy_settings.*`: per-user WinINet proxy with its HKCU backup
+- `pipe_protocol.*`, `json.*`: framing and JSON for the app ↔ service pipe
+- `log.*`: diagnostics, `%LOCALAPPDATA%\ChrNet\logs\app.log` for the app and `<install dir>\logs\service.log` for the service
+
+`windows/service/` (`chrnet_service.exe`)
+- `service_main.cpp`: service control manager entry, `--install` / `--uninstall`, and `--console [--test] [--pipe NAME] [--allow-any-client]` for diagnostics
+- `pipe_server.*`: interactive users get read/write on the pipe but never FILE_CREATE_PIPE_INSTANCE, so clients must open it with `GENERIC_READ | FILE_WRITE_DATA`
+
+`windows/runner/`
+- `vpn_service_bridge.*`: the `com.chrnet.vpn/service` channel; blocking work on a worker thread, replies through the window's platform thread; sets and restores the system proxy
+- `service_client.*`: pipe client; ignores a pipe served outside session 0
+- `in_process_backend.cpp`: fallback when no service answers
+- `win32_window.*`, `flutter_window.*`: tray menu with connect/disconnect, end-of-session cleanup, `--minimized`
+
 ---
 
 # 7. Core Data Flows
@@ -320,6 +349,13 @@ Notes:
 - deep links eventually become subscription URLs
 - importing a subscription may also bring DNS servers, profile title, traffic data, and expiry data
 - subscription bodies may contain classic URI lists or Remnawave `XRAY_JSON` payloads
+- every subscription request carries device headers from `DeviceService`
+  (`x-hwid`, `x-device-os`, `x-ver-os`, `x-device-model`, `User-Agent`);
+  `x-hwid` is never empty — a locally generated UUID is stored and reused when
+  the platform cannot supply an id
+- anti-sharing panels answer an unrecognised device with `200` plus a stub
+  config (`0.0.0.0`, remark carrying the refusal text), so import rejects such a
+  response instead of saving it as a server
 
 ## Subscription Refresh Flow
 
@@ -516,11 +552,14 @@ Android:
 
 Windows:
 - current supported runtime target
-- supports native VPN integration
-- supports tunnel/system proxy behavior
-- reads deep links from CLI args
+- the VPN core runs in the `ChrNetService` Windows service (`chrnet_service.exe`, LocalSystem), so the app itself never needs administrator rights; the installer registers it (`--install`) and removes it (`--uninstall`)
+- the app talks to the service over the named pipe `\\.\pipe\ChrNetService` (length-prefixed JSON, see `windows/core/pipe_protocol.h`); without a reachable service it falls back to running the core in-process (`windows/runner/in_process_backend.cpp`), where tunnel mode only works if the app is elevated
+- both modes also point the Windows system proxy at 127.0.0.1:10809; the app, not the service, owns that per-user setting and keeps a backup under `HKCU\Software\ChrNet\ProxyBackup`, so a crash, a kill or a log-off never leaves it pointing at a dead port
+- tunnel mode: TUN `chrnet0` gets 198.18.0.1/30, interface metric 1 and DNS server 198.18.0.2, which the config answers with Xray's DNS module (`dns-out`); dynamic-session WFP filters block DNS and global IPv6 outside the TUN while it is up
+- the service watches the core process and the physical default route: a crash reaches Dart as `onCoreStopped`, a network change rebuilds the tunnel by itself, and `VpnProvider` retries dropped connections with backoff
+- reads deep links from CLI args; `--minimized` starts in the tray (the "start with Windows" Run entry), `--cleanup` restores a stale system proxy (run by the installer)
 - supports self-update from GitHub installer
-- uses polling for stats
+- stats come from Xray's metrics endpoint (127.0.0.1:10813/debug/vars), read by the service
 
 Web:
 - should be treated as non-VPN runtime unless specifically implemented and verified
@@ -539,6 +578,10 @@ Useful small facts for future AI sessions:
 - `VpnProvider.selectServer()` may trigger reconnect when server changes during an active connection
 - `VpnProvider` also syncs quick settings config on Android
 - `HomeScreen` auto-refreshes subscriptions on a timer and also handles deep-link-driven imports
+- Windows tunnel mode must keep every VPN server off the TUN, not just `ServerConfig.host`: balancer templates dial all their outbounds. `VpnProvider` resolves `XrayConfigBuilder.tunnelBypassHosts`, pins the addresses in `dns.hosts` and sends names plus addresses as `serverHosts`; the service adds a host route via the physical gateway for each, and outbounds that dial the network themselves carry a `sendThrough` placeholder the service rewrites to the physical adapter address
+- the service starts Xray with a second config file that replaces the `log` section, so no imported config can make the core, which runs as SYSTEM, write to arbitrary paths
+- in Windows tunnel configs the DNS hijack rule must stay ahead of the broadcast block rules: the blocked TUN subnet contains the resolver address 198.18.0.2
+- `autoConnect` (Windows only) connects when the app starts; starting with Windows is an `HKCU\...\Run` entry managed natively, not a stored setting
 
 ---
 

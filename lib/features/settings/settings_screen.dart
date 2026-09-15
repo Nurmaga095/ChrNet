@@ -16,6 +16,7 @@ import '../../ui/theme/theme_controller.dart';
 import '../../ui/widgets/app_card.dart';
 import '../../ui/widgets/app_nav_bar.dart';
 import '../privacy/privacy_screens.dart';
+import 'windows_connection_settings.dart';
 
 const _supportUrl = 'https://t.me/VSupportV';
 
@@ -419,9 +420,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: AppSpacing.xl),
-              const AppSectionLabel(text: 'Протоколы'),
-              const _ProtocolCard(),
               if (_isWindowsSelfUpdateSupported) ...[
                 const SizedBox(height: AppSpacing.xl),
                 const AppSectionLabel(text: 'Обновления'),
@@ -802,56 +800,6 @@ class _AppearanceCardState extends State<_AppearanceCard> {
   }
 }
 
-class _ProtocolCard extends StatelessWidget {
-  const _ProtocolCard();
-
-  static const _protocols = [
-    'VLESS',
-    'JSON-конфиги',
-    'TLS',
-    'Reality',
-    'xhttp',
-    'WebSocket',
-    'gRPC',
-    'TCP',
-    'mKCP',
-    'HTTPUpgrade',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final c = AppColors.of(context);
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Что можно импортировать',
-            style: AppText.body.copyWith(
-              color: c.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              for (final protocol in _protocols)
-                AppPill(
-                  icon: Icons.check_rounded,
-                  label: protocol,
-                  color: c.textSecondary,
-                  background: c.surfaceMuted,
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _UpdatesCard extends StatelessWidget {
   final String status;
   final Color statusColor;
@@ -940,7 +888,6 @@ class _ConnectionSettingsScreen extends StatefulWidget {
 class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   late bool _bypassLan;
   late bool _ruRouting;
-  late String _windowsVpnMode;
   late String _pingMethod;
   late int _subscriptionAutoUpdateHours;
   final _subscriptionAutoUpdateController = TextEditingController();
@@ -967,7 +914,6 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
   void _reload() {
     _bypassLan = StorageService.getBypassLan();
     _ruRouting = StorageService.getRuRouting();
-    _windowsVpnMode = StorageService.getWindowsVpnMode();
     _pingMethod = StorageService.getPingMethod();
     _subscriptionAutoUpdateHours =
         StorageService.getSubscriptionAutoUpdateHours();
@@ -1368,48 +1314,7 @@ class _ConnectionSettingsScreenState extends State<_ConnectionSettingsScreen> {
               if (isWindows) ...[
                 const SizedBox(height: AppSpacing.xl),
                 const AppSectionLabel(text: 'Windows'),
-                AppCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SettingsCardHeader(
-                        icon: Icons.desktop_windows_rounded,
-                        accent: AppColors.warning,
-                        title: 'Режим подключения',
-                        subtitle: 'Как перехватывается системный трафик',
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      SegmentedButton<String>(
-                        showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(
-                            value: 'system_proxy',
-                            label: Text('Системный прокси'),
-                          ),
-                          ButtonSegment(
-                            value: 'tunnel',
-                            label: Text('Туннель'),
-                          ),
-                        ],
-                        selected: {_windowsVpnMode},
-                        onSelectionChanged: (selection) async {
-                          final next = selection.first;
-                          await StorageService.setWindowsVpnMode(next);
-                          setState(() => _windowsVpnMode = next);
-                        },
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      Text(
-                        _windowsVpnMode == 'tunnel'
-                            ? 'Туннель: полный перехват трафика, нужны права '
-                                'администратора.'
-                            : 'Системный прокси: стабильнее, но перехватывает '
-                                'не весь трафик приложений.',
-                        style: AppText.caption.copyWith(color: c.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
+                const WindowsConnectionSettings(),
               ],
             ],
           ),

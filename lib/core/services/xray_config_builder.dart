@@ -13,6 +13,40 @@ class XrayConfigBuilder {
   ];
   static const List<String> _ruDirectIpRules = ['geoip:ru'];
 
+  /// TUN interface address. A /30 inside the IANA benchmark range keeps the
+  /// broadcast domain empty and, unlike the former 10.0.0.1/24, neither
+  /// overlaps the "private networks go direct" rules nor collides with a home
+  /// LAN. That overlap used to turn every Windows NetBIOS broadcast into a
+  /// routing loop which drained all 16 384 ephemeral UDP ports of the machine,
+  /// leaving no process able to open a UDP socket while the tunnel was up.
+  static const String _tunAddress = '198.18.0.1/30';
+  static const String _tunSubnet = '198.18.0.0/30';
+
+  /// The address the Windows runner registers as the TUN adapter's DNS
+  /// server. Queries sent to it are answered by Xray's DNS module through the
+  /// `dns-out` outbound, so name resolution travels through the tunnel instead
+  /// of going in the clear to a resolver the ISP can read or tamper with.
+  static const String tunnelDnsServer = '198.18.0.2';
+
+  /// Loopback port of Xray's metrics endpoint on Windows. The ChrNet service
+  /// reads traffic counters from its /debug/vars instead of starting
+  /// `xray api statsquery` once a second.
+  static const int windowsMetricsPort = 10813;
+
+  static const String _dnsOutboundTag = 'dns-out';
+
+  /// Local proxy inbounds, exposed in both Windows modes so applications that
+  /// have 127.0.0.1:10808/10809 configured by hand keep working with the
+  /// tunnel on.
+  static const int _socksInboundPort = 10808;
+  static const int _httpInboundPort = 10809;
+
+  /// Placeholder `sendThrough` value for direct outbounds. The Windows runner
+  /// rewrites it with the physical adapter address before starting the core so
+  /// direct traffic cannot be picked up by the TUN default routes again. Left
+  /// as-is it means "default interface", which is the old behaviour.
+  static const String _physicalInterfacePlaceholder = '0.0.0.0';
+
   static String buildProxyConfig(ServerConfig server) {
     return buildSystemProxyConfig(server);
   }
@@ -70,10 +104,12 @@ class XrayConfigBuilder {
     return jsonEncode(config);
   }
 
+  /// [metricsPort] exposes Xray's metrics endpoint for the Windows service.
   static String buildSystemProxyConfig(
     ServerConfig server, {
     bool statsApi = false,
     bool enableRuRouting = true,
+    int? metricsPort,
   }) {
     if (_isJsonServer(server)) {
       return _buildImportedJsonConfig(
@@ -81,30 +117,14 @@ class XrayConfigBuilder {
         tunnelMode: false,
         statsApi: statsApi,
         enableRuRouting: enableRuRouting,
+        metricsPort: metricsPort,
       );
     }
 
     final outbound = _buildOutbound(server);
     final dnsServers = _resolveDnsServers(server);
     final inbounds = <Map<String, dynamic>>[
-      <String, dynamic>{
-        'tag': 'socks-in',
-        'listen': '127.0.0.1',
-        'port': 10808,
-        'protocol': 'socks',
-        'settings': <String, dynamic>{'udp': true},
-        'sniffing': <String, dynamic>{
-          'enabled': true,
-          'destOverride': <String>['http', 'tls'],
-        },
-      },
-      <String, dynamic>{
-        'tag': 'http-in',
-        'listen': '127.0.0.1',
-        'port': 10809,
-        'protocol': 'http',
-        'settings': <String, dynamic>{},
-      },
+      ..._localProxyInbounds(socksTag: 'socks-in', httpTag: 'http-in'),
       if (statsApi) _statsApiInbound(),
     ];
     final routingRules = <Map<String, dynamic>>[
@@ -122,7 +142,7 @@ class XrayConfigBuilder {
       if (enableRuRouting) ..._buildRuDirectRoutingRules(),
     ];
     final config = <String, dynamic>{
-      'log': <String, dynamic>{'loglevel': 'warning'},
+      'log': <String, dynamic>{'loglevel': 'warning', 'access': 'none'},
       'dns': <String, dynamic>{'servers': dnsServers},
       'inbounds': inbounds,
       'outbounds': <Map<String, dynamic>>[
@@ -135,26 +155,22 @@ class XrayConfigBuilder {
         'rules': routingRules,
       },
     };
-    if (statsApi) {
-      config['stats'] = <String, dynamic>{};
-      config['api'] = <String, dynamic>{
-        'tag': 'api',
-        'services': <String>['StatsService'],
-      };
-      config['policy'] = <String, dynamic>{
-        'system': <String, dynamic>{
-          'statsOutboundDownlink': true,
-          'statsOutboundUplink': true,
-        },
-      };
-    }
+    _applyStats(config, statsApi: statsApi, metricsPort: metricsPort);
     return jsonEncode(config);
   }
 
+  /// [hijackDns] answers the TUN's DNS server address with Xray's DNS module
+  /// (Windows, where the runner points the system resolver at it).
+  /// [pinnedHosts] maps server host names to the addresses the runner routes
+  /// around the tunnel, so the core always dials exactly those.
   static String buildTunnelConfig(
     ServerConfig server, {
     bool statsApi = false,
     bool enableRuRouting = true,
+    bool localProxy = true,
+    bool hijackDns = false,
+    Map<String, List<String>> pinnedHosts = const {},
+    int? metricsPort,
   }) {
     if (_isJsonServer(server)) {
       return _buildImportedJsonConfig(
@@ -162,40 +178,51 @@ class XrayConfigBuilder {
         tunnelMode: true,
         statsApi: statsApi,
         enableRuRouting: enableRuRouting,
+        localProxy: localProxy,
+        hijackDns: hijackDns,
+        pinnedHosts: pinnedHosts,
+        metricsPort: metricsPort,
       );
     }
 
-    final outbound = _buildOutbound(server);
+    final outbound = <String, dynamic>{
+      ..._buildOutbound(server),
+      'sendThrough': _physicalInterfacePlaceholder,
+    };
     final dnsServers = _resolveDnsServers(server);
     final isIp =
         RegExp(r'^[\d.]+$').hasMatch(server.host) || server.host.contains(':');
     final config = <String, dynamic>{
-      'log': <String, dynamic>{'loglevel': 'warning'},
-      'dns': <String, dynamic>{'servers': dnsServers},
-      'inbounds': <Map<String, dynamic>>[
+      'log': <String, dynamic>{'loglevel': 'warning', 'access': 'none'},
+      'dns': _withPinnedHosts(
         <String, dynamic>{
-          'tag': 'tun-in',
-          'port': 0,
-          'protocol': 'tun',
-          'settings': <String, dynamic>{
-            'name': 'chrnet0',
-            'MTU': 1500,
-            'userLevel': 8,
-            'address': <String>['10.0.0.1/24'],
-            'autoRoute': true,
-            'strictRoute': false,
-          },
+          'servers': dnsServers,
+          // The tunnel carries IPv4 only. AAAA answers would send applications
+          // to addresses they cannot reach through it.
+          if (hijackDns) 'queryStrategy': 'UseIPv4',
         },
+        pinnedHosts,
+      ),
+      'inbounds': <Map<String, dynamic>>[
+        _tunInbound(),
+        if (localProxy)
+          ..._localProxyInbounds(socksTag: 'socks-in', httpTag: 'http-in'),
         if (statsApi) _statsApiInbound(),
       ],
       'outbounds': <Map<String, dynamic>>[
         outbound,
-        <String, dynamic>{'tag': 'direct', 'protocol': 'freedom'},
+        <String, dynamic>{
+          'tag': 'direct',
+          'protocol': 'freedom',
+          'sendThrough': _physicalInterfacePlaceholder,
+        },
         <String, dynamic>{'tag': 'block', 'protocol': 'blackhole'},
+        if (hijackDns) _dnsOutbound(),
       ],
       'routing': <String, dynamic>{
         'domainStrategy': 'IPIfNonMatch',
         'rules': <Map<String, dynamic>>[
+          if (hijackDns) _dnsHijackRule(),
           if (statsApi) _statsApiRoutingRule(),
           // Proxy server goes direct — avoids TUN routing loop
           <String, dynamic>{
@@ -206,10 +233,10 @@ class XrayConfigBuilder {
             else
               'domain': <String>[server.host],
           },
-          // Local networks bypass TUN
+          // Local networks bypass the tunnel. Not scoped to the TUN inbound:
+          // the local socks/http inbounds need the same treatment.
           <String, dynamic>{
             'type': 'field',
-            'inboundTag': <String>['tun-in'],
             'ip': <String>[
               '127.0.0.0/8',
               '10.0.0.0/8',
@@ -218,31 +245,67 @@ class XrayConfigBuilder {
             ],
             'outboundTag': 'direct',
           },
-          if (enableRuRouting)
-            ..._buildRuDirectRoutingRules(inboundTag: 'tun-in'),
+          ..._broadcastBlockRules(),
+          if (enableRuRouting) ..._buildRuDirectRoutingRules(),
           // All other traffic through proxy
           <String, dynamic>{
             'type': 'field',
-            'inboundTag': <String>['tun-in'],
+            'network': 'tcp,udp',
             'outboundTag': 'proxy',
           },
         ],
       },
     };
-    if (statsApi) {
-      config['stats'] = <String, dynamic>{};
-      config['api'] = <String, dynamic>{
-        'tag': 'api',
-        'services': <String>['StatsService'],
-      };
-      config['policy'] = <String, dynamic>{
-        'system': <String, dynamic>{
-          'statsOutboundDownlink': true,
-          'statsOutboundUplink': true,
-        },
-      };
-    }
+    _applyStats(config, statsApi: statsApi, metricsPort: metricsPort);
     return jsonEncode(config);
+  }
+
+  /// Every proxy server address the tunnel config can dial, for the Windows
+  /// runner to route around the TUN. [ServerConfig.host] names only the first
+  /// one, but a balancer template dials all of its outbounds: a server left
+  /// out of the bypass has its connections caught by the TUN default routes
+  /// and fed back into the core, which picks a server for them again.
+  static List<String> tunnelBypassHosts(ServerConfig server) {
+    final hosts = <String>{};
+    void add(Object? address) {
+      final value = address?.toString().trim() ?? '';
+      if (value.isNotEmpty) hosts.add(value);
+    }
+
+    if (_isJsonServer(server)) {
+      final outbounds =
+          _normalizeOutbounds(_parseImportedConfig(server)['outbounds']);
+      for (final outbound in outbounds.where(_isProxyOutbound)) {
+        final settings = _normalizeMap(outbound['settings']);
+        if (settings == null) continue;
+        for (final key in const ['vnext', 'servers']) {
+          final entries = settings[key];
+          if (entries is! List) continue;
+          for (final entry in entries.whereType<Map>()) {
+            add(entry['address']);
+          }
+        }
+        add(settings['address']);
+      }
+    }
+    add(server.host);
+    return hosts.toList();
+  }
+
+  /// Tags of the outbounds in a built config that carry VPN traffic, the ones
+  /// the traffic counters should add up.
+  static List<String> proxyOutboundTags(String configJson) {
+    try {
+      final decoded = jsonDecode(configJson);
+      if (decoded is! Map) return const [];
+      return _normalizeOutbounds(decoded['outbounds'])
+          .where(_isProxyOutbound)
+          .map((outbound) => outbound['tag']?.toString() ?? '')
+          .where((tag) => tag.isNotEmpty)
+          .toList();
+    } on FormatException {
+      return const [];
+    }
   }
 
   static String buildAndroidVpnConfig(
@@ -254,6 +317,7 @@ class XrayConfigBuilder {
       server,
       statsApi: statsApi,
       enableRuRouting: enableRuRouting,
+      localProxy: false,
     ));
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('Tunnel config must be an object');
@@ -382,19 +446,177 @@ class XrayConfigBuilder {
         'outboundTag': 'api',
       };
 
-  static List<Map<String, dynamic>> _buildRuDirectRoutingRules({
-    String? inboundTag,
+  /// Traffic counters for the session. Android reads them through the API
+  /// inbound; Windows reads the metrics endpoint on [metricsPort].
+  static void _applyStats(
+    Map<String, dynamic> config, {
+    required bool statsApi,
+    required int? metricsPort,
   }) {
+    if (!statsApi && metricsPort == null) return;
+    config['stats'] = <String, dynamic>{};
+    if (statsApi) {
+      config['api'] = <String, dynamic>{
+        'tag': 'api',
+        'services': <String>['StatsService'],
+      };
+    }
+    if (metricsPort != null) {
+      config['metrics'] = <String, dynamic>{
+        'tag': 'metrics',
+        'listen': '127.0.0.1:$metricsPort',
+      };
+    }
+    config['policy'] = <String, dynamic>{
+      'system': <String, dynamic>{
+        'statsOutboundDownlink': true,
+        'statsOutboundUplink': true,
+      },
+    };
+  }
+
+  static Map<String, dynamic> _dnsOutbound() => <String, dynamic>{
+        'tag': _dnsOutboundTag,
+        'protocol': 'dns',
+        // Only A and AAAA reach the DNS module. Refusing the rest (HTTPS,
+        // SVCB) answers them at once instead of letting them time out.
+        'settings': <String, dynamic>{'nonIPQuery': 'reject'},
+      };
+
+  /// Must precede [_broadcastBlockRules], whose TUN subnet block covers
+  /// [tunnelDnsServer].
+  static Map<String, dynamic> _dnsHijackRule() => <String, dynamic>{
+        'type': 'field',
+        'inboundTag': <String>['tun-in'],
+        'ip': <String>[tunnelDnsServer],
+        'port': '53',
+        'outboundTag': _dnsOutboundTag,
+      };
+
+  /// Readies an imported DNS section for answering the system resolver.
+  /// "localhost" means the system resolver, which now points back into the
+  /// tunnel: a lookup sent there would come straight back to the same module.
+  static Map<String, dynamic> _prepareTunnelDns(Map<String, dynamic> dns) {
+    final next = Map<String, dynamic>.from(dns);
+    final servers = dns['servers'];
+    if (servers is List) {
+      final kept = servers.where((server) {
+        final address =
+            server is Map ? server['address']?.toString() : server?.toString();
+        return (address ?? '').trim().toLowerCase() != 'localhost';
+      }).toList();
+      next['servers'] =
+          kept.isEmpty ? List<String>.from(_fallbackDnsServers) : kept;
+    }
+    next.putIfAbsent('queryStrategy', () => 'UseIPv4');
+    return next;
+  }
+
+  /// Adds [pinnedHosts] to a DNS section. Entries the section already defines
+  /// win: they are a deliberate choice of whoever wrote the config.
+  static Map<String, dynamic> _withPinnedHosts(
+    Map<String, dynamic> dns,
+    Map<String, List<String>> pinnedHosts,
+  ) {
+    if (pinnedHosts.isEmpty) return dns;
+    final existing = _normalizeMap(dns['hosts']) ?? <String, dynamic>{};
+    return <String, dynamic>{
+      ...dns,
+      'hosts': <String, dynamic>{
+        for (final entry in pinnedHosts.entries)
+          if (entry.value.isNotEmpty) entry.key: entry.value,
+        ...existing,
+      },
+    };
+  }
+
+  static Map<String, dynamic> _tunInbound() => <String, dynamic>{
+        'tag': 'tun-in',
+        'port': 0,
+        'protocol': 'tun',
+        'settings': <String, dynamic>{
+          'name': 'chrnet0',
+          'MTU': 1500,
+          'userLevel': 8,
+          'address': <String>[_tunAddress],
+          'autoRoute': true,
+          'strictRoute': false,
+        },
+        // Packets arrive addressed by IP, so without sniffing every `domain:`
+        // routing rule is dead weight in tunnel mode — a site kept direct (or
+        // forced through the proxy) by domain would be routed only by its IP,
+        // which is how the two Windows modes ended up disagreeing about where
+        // a given site goes. routeOnly keeps the original destination and uses
+        // the sniffed name for routing alone.
+        'sniffing': <String, dynamic>{
+          'enabled': true,
+          'routeOnly': true,
+          'destOverride': <String>['http', 'tls', 'quic'],
+        },
+      };
+
+  static List<Map<String, dynamic>> _localProxyInbounds({
+    required String socksTag,
+    required String httpTag,
+  }) =>
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'tag': socksTag,
+          'listen': '127.0.0.1',
+          'port': _socksInboundPort,
+          'protocol': 'socks',
+          'settings': <String, dynamic>{'udp': true},
+          'sniffing': <String, dynamic>{
+            'enabled': true,
+            'destOverride': <String>['http', 'tls'],
+          },
+        },
+        <String, dynamic>{
+          'tag': httpTag,
+          'listen': '127.0.0.1',
+          'port': _httpInboundPort,
+          'protocol': 'http',
+          'settings': <String, dynamic>{},
+        },
+      ];
+
+  /// Broadcast, multicast and LAN-discovery noise must never leave the TUN.
+  /// Windows keeps NetBIOS over TCP/IP enabled on a freshly created adapter and
+  /// announces itself on it the moment it comes up. Sent on rather than
+  /// blackholed, such a broadcast is delivered back into the tunnel's own
+  /// subnet, which opens another UDP socket for the next copy of it — the loop
+  /// that used to eat all 16 384 ephemeral UDP ports within seconds of
+  /// connecting. Link-local is in the list because the TUN falls back to an
+  /// APIPA address when it fails to get its own.
+  static List<Map<String, dynamic>> _broadcastBlockRules() =>
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'type': 'field',
+          'ip': <String>[
+            '224.0.0.0/4',
+            '255.255.255.255/32',
+            '169.254.0.0/16',
+            _tunSubnet,
+          ],
+          'outboundTag': 'block',
+        },
+        <String, dynamic>{
+          'type': 'field',
+          // NetBIOS, SSDP, WS-Discovery, mDNS, LLMNR.
+          'port': '137-139,1900,3702,5353,5355',
+          'outboundTag': 'block',
+        },
+      ];
+
+  static List<Map<String, dynamic>> _buildRuDirectRoutingRules() {
     return [
       <String, dynamic>{
         'type': 'field',
-        if (inboundTag != null) 'inboundTag': <String>[inboundTag],
         'domain': _ruDirectDomainRules,
         'outboundTag': 'direct',
       },
       <String, dynamic>{
         'type': 'field',
-        if (inboundTag != null) 'inboundTag': <String>[inboundTag],
         'ip': _ruDirectIpRules,
         'outboundTag': 'direct',
       },
@@ -485,6 +707,10 @@ class XrayConfigBuilder {
     required bool tunnelMode,
     required bool statsApi,
     required bool enableRuRouting,
+    bool localProxy = true,
+    bool hijackDns = false,
+    Map<String, List<String>> pinnedHosts = const {},
+    int? metricsPort,
   }) {
     final imported = _parseImportedConfig(server);
     final outbounds = _normalizeOutbounds(imported['outbounds']);
@@ -494,7 +720,9 @@ class XrayConfigBuilder {
 
     final importedRouting = _normalizeMap(imported['routing']);
     final importedRules = _normalizeRules(importedRouting?['rules']);
-    final dns = _resolveImportedDns(imported, server);
+    var dns = _resolveImportedDns(imported, server);
+    if (hijackDns) dns = _prepareTunnelDns(dns);
+    dns = _withPinnedHosts(dns, pinnedHosts);
 
     final config = Map<String, dynamic>.from(imported)
       ..remove('remarks')
@@ -504,48 +732,28 @@ class XrayConfigBuilder {
       ..remove('routing')
       ..remove('dns');
 
-    config['log'] = _normalizeMap(imported['log']) ??
+    final log = _normalizeMap(imported['log']) ??
         <String, dynamic>{'loglevel': 'warning'};
+    // Without this Xray writes its access log to stdout, which the Windows
+    // runner captures into xray.log — megabytes for a single session.
+    log.putIfAbsent('access', () => 'none');
+    config['log'] = log;
     config['dns'] = dns;
-    config['inbounds'] = tunnelMode
-        ? <Map<String, dynamic>>[
-            <String, dynamic>{
-              'tag': 'tun-in',
-              'port': 0,
-              'protocol': 'tun',
-              'settings': <String, dynamic>{
-                'name': 'chrnet0',
-                'MTU': 1500,
-                'userLevel': 8,
-                'address': <String>['10.0.0.1/24'],
-                'autoRoute': true,
-                'strictRoute': false,
-              },
-            },
-            if (statsApi) _statsApiInbound(),
-          ]
-        : <Map<String, dynamic>>[
-            <String, dynamic>{
-              'tag': 'socks',
-              'listen': '127.0.0.1',
-              'port': 10808,
-              'protocol': 'socks',
-              'settings': <String, dynamic>{'udp': true},
-              'sniffing': <String, dynamic>{
-                'enabled': true,
-                'destOverride': <String>['http', 'tls'],
-              },
-            },
-            <String, dynamic>{
-              'tag': 'http',
-              'listen': '127.0.0.1',
-              'port': 10809,
-              'protocol': 'http',
-              'settings': <String, dynamic>{},
-            },
-            if (statsApi) _statsApiInbound(),
-          ];
-    config['outbounds'] = _ensureDirectAndBlockOutbounds(outbounds);
+    config['inbounds'] = <Map<String, dynamic>>[
+      if (tunnelMode) _tunInbound(),
+      if (localProxy)
+        ..._localProxyInbounds(socksTag: 'socks', httpTag: 'http'),
+      if (statsApi) _statsApiInbound(),
+    ];
+    final nextOutbounds = _ensureDirectAndBlockOutbounds(
+      outbounds,
+      bindPhysicalInterface: tunnelMode,
+    );
+    if (hijackDns &&
+        !nextOutbounds.any((outbound) => outbound['tag'] == _dnsOutboundTag)) {
+      nextOutbounds.add(_dnsOutbound());
+    }
+    config['outbounds'] = nextOutbounds;
     config['routing'] = _buildImportedRouting(
       importedRouting,
       importedRules,
@@ -553,21 +761,10 @@ class XrayConfigBuilder {
       tunnelMode: tunnelMode,
       statsApi: statsApi,
       enableRuRouting: enableRuRouting,
+      hijackDns: hijackDns,
     );
 
-    if (statsApi) {
-      config['stats'] = <String, dynamic>{};
-      config['api'] = <String, dynamic>{
-        'tag': 'api',
-        'services': <String>['StatsService'],
-      };
-      config['policy'] = <String, dynamic>{
-        'system': <String, dynamic>{
-          'statsOutboundDownlink': true,
-          'statsOutboundUplink': true,
-        },
-      };
-    }
+    _applyStats(config, statsApi: statsApi, metricsPort: metricsPort);
 
     return jsonEncode(config);
   }
@@ -775,8 +972,9 @@ class XrayConfigBuilder {
   }
 
   static List<Map<String, dynamic>> _ensureDirectAndBlockOutbounds(
-    List<Map<String, dynamic>> outbounds,
-  ) {
+    List<Map<String, dynamic>> outbounds, {
+    bool bindPhysicalInterface = false,
+  }) {
     final next = outbounds
         .map((outbound) => Map<String, dynamic>.from(outbound))
         .toList();
@@ -799,6 +997,16 @@ class XrayConfigBuilder {
       next.add(<String, dynamic>{'tag': 'block', 'protocol': 'blackhole'});
     }
 
+    if (bindPhysicalInterface) {
+      for (final outbound in next) {
+        if (!_dialsPhysicalNetwork(outbound)) continue;
+        outbound.putIfAbsent(
+          'sendThrough',
+          () => _physicalInterfacePlaceholder,
+        );
+      }
+    }
+
     return next;
   }
 
@@ -809,35 +1017,27 @@ class XrayConfigBuilder {
     required bool tunnelMode,
     required bool statsApi,
     required bool enableRuRouting,
+    bool hijackDns = false,
   }) {
     final rules = <Map<String, dynamic>>[
+      if (hijackDns) _dnsHijackRule(),
       if (statsApi) _statsApiRoutingRule(),
+      // The server and LAN rules come first: a server could legitimately sit on
+      // one of the ports the noise rules blackhole, and a LAN host has to stay
+      // reachable over NetBIOS or mDNS.
       if (tunnelMode) ..._buildJsonTunnelServerDirectRules(outbounds),
-      if (tunnelMode)
-        <String, dynamic>{
-          'type': 'field',
-          'inboundTag': <String>['tun-in'],
-          'ip': <String>[
-            '127.0.0.0/8',
-            '10.0.0.0/8',
-            '172.16.0.0/12',
-            '192.168.0.0/16',
-          ],
-          'outboundTag': 'direct',
-        }
-      else
-        <String, dynamic>{
-          'type': 'field',
-          'outboundTag': 'direct',
-          'ip': <String>[
-            '127.0.0.0/8',
-            '10.0.0.0/8',
-            '172.16.0.0/12',
-            '192.168.0.0/16',
-          ],
-        },
-      if (enableRuRouting)
-        ..._buildRuDirectRoutingRules(inboundTag: tunnelMode ? 'tun-in' : null),
+      <String, dynamic>{
+        'type': 'field',
+        'outboundTag': 'direct',
+        'ip': <String>[
+          '127.0.0.0/8',
+          '10.0.0.0/8',
+          '172.16.0.0/12',
+          '192.168.0.0/16',
+        ],
+      },
+      if (tunnelMode) ..._broadcastBlockRules(),
+      if (enableRuRouting) ..._buildRuDirectRoutingRules(),
       ..._stripUnresolvableGeoRules(importedRules),
     ];
 
@@ -862,7 +1062,6 @@ class XrayConfigBuilder {
 
       rules.add(<String, dynamic>{
         'type': 'field',
-        'inboundTag': <String>['tun-in'],
         'outboundTag': 'direct',
         if (target.type == 'ip')
           'ip': <String>[target.value]
@@ -927,6 +1126,19 @@ class XrayConfigBuilder {
         protocol != 'socks' &&
         protocol != 'http' &&
         protocol != 'loopback';
+  }
+
+  /// Outbounds that open their own sockets on the network. One chained through
+  /// another outbound (`dialerProxy` / `proxySettings`) leaves the machine
+  /// through that outbound instead, so there is nothing to bind.
+  static bool _dialsPhysicalNetwork(Map<String, dynamic> outbound) {
+    final protocol = outbound['protocol']?.toString().trim().toLowerCase();
+    if (protocol != 'freedom' && !_isProxyOutbound(outbound)) return false;
+    final proxySettings = _normalizeMap(outbound['proxySettings']);
+    if ((proxySettings?['tag']?.toString() ?? '').isNotEmpty) return false;
+    final sockopt =
+        _normalizeMap(_normalizeMap(outbound['streamSettings'])?['sockopt']);
+    return (sockopt?['dialerProxy']?.toString() ?? '').isEmpty;
   }
 
   static bool _isProxyOutboundWithEndpoint(Map<String, dynamic> outbound) {
